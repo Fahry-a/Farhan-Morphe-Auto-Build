@@ -60,7 +60,7 @@ jobs:
           pairs = []
           for path in sorted(glob.glob('apps/*.json')):
               cfg = json.load(open(path))
-              if cfg.get("enabled", True) is False:
+              if cfg.get('enabled', True) is False:
                   continue
               if only_app != 'all' and cfg['id'] != only_app:
                   continue
@@ -188,11 +188,6 @@ jobs:
           "
           elif [ "$TYPE" = "apkmirror" ]; then
             python3 tools/apkmirror.py --config "${{ matrix.config }}" \
-              --arch "${{ matrix.arch }}" \
-              --exact-version "${{ steps.resolve.outputs.apk_version }}" \
-              --output "$BASE_FILE"
-          elif [ "$TYPE" = "uptodown" ]; then
-            python3 tools/uptodown.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
               --output "$BASE_FILE"

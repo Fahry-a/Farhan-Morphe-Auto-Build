@@ -20,7 +20,6 @@ Release tags are months: `2026-09`, `2026-10`, ... Each release holds the latest
 3. Each pair checks the current month release: skip when all expected assets already exist.
 4. Downloads the prebuilt `.mpp` and the exact-version base package:
    - APKMirror: `tools/apkmirror.py --arch ...` (`apk` or `apkm` bundle) — fast path `curl_cffi` with Chrome impersonation, Playwright headless Chromium fallback for the Cloudflare JS challenge.
-   - Uptodown: `tools/uptodown.py --arch ...` (`apk` or `xapk`) — app page (canonical slug auto-followed, locale hosts as fallback) → versions JSON → variant catalog → `-x` page; static `dw.uptodown.com` link when present, otherwise Playwright clicks the real download button.
    - GitHub: `tools/github_source.py --arch ...` — resolves `browser_download_url` via the API.
 5. Patches with the `MorpheApp/morphe-desktop` CLI via `tools/patch.py --arch ...`, which writes `manifest.json` listing every file actually produced. The Sign step reads the manifest and never reconstructs filenames by hand.
 6. Signs with `zipalign` + zip repack fix + `apksigner` using one shared keystore (`KEYSTORE_BASE64`).
@@ -108,19 +107,6 @@ Every download is validated before patching: APKs must open in `aapt`
 with the expected version, bundles must contain APK entries. A bad file
 fails the run with a clear message instead of a cryptic patcher NPE.
 
-For a Uptodown source, each arch only needs the page slug (canonical slugs
-are followed automatically when Uptodown redirects an alias):
-
-```json
-  "source": {
-    "type": "uptodown",
-    "file_type": "xapk",
-    "archs": [
-      {"name": "universal", "page_slug": "block-blast"}
-    ]
-  }
-```
-
 For a direct mirror source (used when every store blocks CI or prunes the
 needed version), each arch carries a URL with `{version}`/`{package}`
 placeholders:
@@ -150,7 +136,6 @@ python3 tools/resolve_version.py --config apps/brave.json
 
 # 2. Download (Photos needs a Cloudflare-capable network)
 python3 tools/apkmirror.py --config apps/google-photos.json --arch universal --exact-version 7.92.0.977185651 --output base.apk
-python3 tools/uptodown.py --page-slug block-blast --exact-version 10.4.5 --output base.xapk
 python3 tools/github_source.py --config apps/brave.json --arch arm64 --apk-version 1.95.104 --output base.apk
 
 # 3. Patch (needs the morphe-desktop jar + Java 21)
