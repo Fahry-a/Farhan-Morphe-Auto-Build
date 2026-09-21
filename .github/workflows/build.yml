@@ -4,6 +4,9 @@ on:
   schedule:
     # 02:00 UTC = 09:00 WIB, daily
     - cron: '0 2 * * *'
+  push:
+    branches: [main]
+    paths: ['apps/**', 'tools/**', '.github/workflows/build.yml', 'requirements.txt']
   workflow_dispatch:
     inputs:
       app:
