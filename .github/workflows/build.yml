@@ -191,11 +191,6 @@ jobs:
               --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
               --output "$BASE_FILE"
-          elif [ "$TYPE" = "apkpure" ]; then
-            python3 tools/apkpure.py --config "${{ matrix.config }}" \
-              --arch "${{ matrix.arch }}" \
-              --exact-version "${{ steps.resolve.outputs.apk_version }}" \
-              --output "$BASE_FILE"
           elif [ "$TYPE" = "uptodown" ]; then
             python3 tools/uptodown.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \

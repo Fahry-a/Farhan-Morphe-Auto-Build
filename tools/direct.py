@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Direct-URL mirror source (no scraping at all).
 
-For apps whose stores block datacenter IPs (APKPure) or prune old versions,
+For apps whose stores prune old versions,
 host the exact base file somewhere reachable (e.g. a GitHub release asset)
 and point the config at it. Supports {version} and {package} substitution:
 
