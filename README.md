@@ -86,18 +86,26 @@ Add one `apps/<id>.json` file — no code or workflow changes needed. The `id` i
 }
 ```
 
-For an APKMirror source, each arch carries its own variant filter:
+For an APKMirror source, each arch carries its own variant filter.
+`file_type` is `apk` for a monolithic APK or `apkm` for an APK bundle
+(APKMirror labels these BUNDLE — the downloader saves the real `.apkm`
+extension and validates the contents, so a bundle can never silently reach
+the patcher as `base.apk`):
 
 ```json
   "source": {
     "type": "apkmirror",
-    "file_type": "apk",
+    "file_type": "apkm",
     "archs": [
       {"name": "universal", "variant_url": "https://www.apkmirror.com/apk/.../",
        "slug_filter": "/apk/.../", "version_slug": "some-app-"}
     ]
   }
 ```
+
+Every download is validated before patching: APKs must open in `aapt`
+with the expected version, bundles must contain APK entries. A bad file
+fails the run with a clear message instead of a cryptic patcher NPE.
 
 For other/new patches: point `patch_repo` at another Morphe patch repo and adjust `package`. No workflow fork needed.
 

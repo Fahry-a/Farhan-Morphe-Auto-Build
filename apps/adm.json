@@ -6,7 +6,7 @@
   "allow_experimental": false,
   "source": {
     "type": "apkmirror",
-    "file_type": "apk",
+    "file_type": "apkm",
     "archs": [
       {
         "name": "universal",
@@ -22,7 +22,7 @@
   "flavors": [
     {
       "name": "default",
-      "description": "app.morphe.android.apps.photos package, side-by-side with stock Photos",
+      "description": "Default flavor with all default ADM patches",
       "patch_include": [],
       "output_suffix": ""
     }

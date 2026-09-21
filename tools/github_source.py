@@ -11,7 +11,7 @@ import os
 import sys
 import urllib.request
 
-from common import resolve_arch_entry
+from common import resolve_arch_entry, validate_package
 
 
 def api_get(url, token=None):
@@ -101,7 +101,14 @@ def main():
     download_url(url, args.output, token)
 
     if os.path.exists(args.output) and os.path.getsize(args.output) > 1_000_000:
-        print(f"OK {args.output} ({os.path.getsize(args.output):,} bytes)")
+        file_type = "apkm" if asset.lower().endswith(".apkm") else "apk"
+        try:
+            entries = validate_package(args.output, file_type)
+        except RuntimeError as e:
+            print(f"Validation failed: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"OK {args.output} ({os.path.getsize(args.output):,} bytes, "
+              f"{entries} zip entries, type={file_type})")
         if "GITHUB_OUTPUT" in os.environ:
             with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
                 fh.write(f"apk_version={tag.lstrip('v')}\n")

@@ -18,7 +18,7 @@ import re
 import sys
 import urllib.parse
 
-from common import resolve_arch_entry
+from common import resolve_arch_entry, validate_package
 
 try:
     from curl_cffi import requests as cffi_requests
@@ -271,7 +271,10 @@ def main():
     parser.add_argument("--version-slug", help="e.g. google-photos-")
     parser.add_argument("--exact-version", help="Exact version from the resolver, e.g. 7.92.0.977185651")
     parser.add_argument("--arch", help="Arch entry name from source.archs, e.g. arm64")
-    parser.add_argument("--output", default="base.apk")
+    parser.add_argument("--file-type", choices=["apk", "apkm"],
+                        help="Package type (default from config source.file_type, else apk)")
+    parser.add_argument("--output", default=None,
+                        help="Output file (default base.apk / base.apkm by file type)")
     parser.add_argument("--check-version", action="store_true")
     parser.add_argument("--direct-url", help="Skip scraping, download this URL directly")
     args = parser.parse_args()
@@ -279,6 +282,7 @@ def main():
     variant_url = args.variant_url
     slug_filter = args.slug_filter
     version_slug = args.version_slug
+    cfg_file_type = None
     if args.config:
         with open(args.config) as fh:
             cfg = json.load(fh)
@@ -292,16 +296,23 @@ def main():
         variant_url = variant_url or entry.get("variant_url")
         slug_filter = slug_filter or entry.get("slug_filter")
         version_slug = version_slug or entry.get("version_slug")
+        cfg_file_type = src.get("file_type")
     if not variant_url or not slug_filter or not version_slug:
         if not args.direct_url:
             parser.error("--config or (--variant-url + --slug-filter + --version-slug) is required")
+
+    file_type = args.file_type or cfg_file_type or "apk"
+    output_path = args.output or ("base.apkm" if file_type == "apkm" else "base.apk")
+    if file_type == "apkm" and output_path.endswith(".apk"):
+        output_path = output_path[:-4] + ".apkm"
+        print(f"Bundle output renamed to: {output_path}")
 
     version_str = "unknown"
     try:
         if args.direct_url:
             print(f"Downloading direct URL: {args.direct_url}")
             if HAS_CURL_CFFI:
-                stream_to_file(cffi_get(None, args.direct_url, HEADERS, stream=True), args.output)
+                stream_to_file(cffi_get(None, args.direct_url, HEADERS, stream=True), output_path)
             else:
                 raise RuntimeError("curl_cffi is not installed")
         elif args.check_version:
@@ -316,26 +327,29 @@ def main():
                 return
         else:
             try:
-                version_str = get_apkmirror_apk(variant_url, args.output, slug_filter,
+                version_str = get_apkmirror_apk(variant_url, output_path, slug_filter,
                                                 version_slug, args.exact_version)
             except Exception as e:
                 print(f"Direct scrape failed ({e}); retrying with Playwright...")
                 version_str = get_apkmirror_apk_playwright(
-                    variant_url, args.output, slug_filter, version_slug, args.exact_version)
+                    variant_url, output_path, slug_filter, version_slug, args.exact_version)
     except Exception as e:
         print(f"Failed: {e}")
         print("Use --direct-url as a manual fallback.")
         sys.exit(1)
 
     if not args.check_version:
-        if os.path.exists(args.output) and os.path.getsize(args.output) > 1_000_000:
-            print(f"OK {args.output} ({os.path.getsize(args.output):,} bytes)")
-            if "GITHUB_OUTPUT" in os.environ and version_str:
-                with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-                    fh.write(f"apk_version={version_str}\n")
-        else:
-            print("Result file is missing or too small!")
+        try:
+            entries = validate_package(output_path, file_type)
+        except RuntimeError as e:
+            print(f"Validation failed: {e}")
             sys.exit(1)
+        print(f"OK {output_path} ({os.path.getsize(output_path):,} bytes, "
+              f"{entries} zip entries, type={file_type})")
+        if "GITHUB_OUTPUT" in os.environ and version_str:
+            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                fh.write(f"apk_version={version_str}\n")
+                fh.write(f"base_file={output_path}\n")
 
 
 if __name__ == "__main__":

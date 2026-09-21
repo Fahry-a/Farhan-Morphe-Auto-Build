@@ -155,12 +155,17 @@ jobs:
           curl -L -o patches.mpp "${{ steps.resolve.outputs.mpp_url }}"
           ls -la patches.mpp
 
-      - name: Download base APK
+      - name: Download base package
+        id: download
         if: steps.check.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source']['type'])")
+          FILE_TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source'].get('file_type', 'apk'))")
+          if [ "$FILE_TYPE" = "apkm" ]; then BASE_FILE="base.apkm"; else BASE_FILE="base.apk"; fi
+          echo "base_file=$BASE_FILE" >> $GITHUB_OUTPUT
+          echo "file_type=$FILE_TYPE" >> $GITHUB_OUTPUT
           if [ -n "${{ inputs.direct_apk_url }}" ]; then
             echo "Using manual direct APK URL"
             python3 -c "
@@ -169,7 +174,7 @@ jobs:
           r = requests.get(url, impersonate='chrome131', stream=True, timeout=120)
           r.raise_for_status()
           total = 0
-          with open('base.apk', 'wb') as fh:
+          with open('$BASE_FILE', 'wb') as fh:
               for ch in r.iter_content(8192):
                   if ch:
                       fh.write(ch); total += len(ch)
@@ -179,16 +184,41 @@ jobs:
             python3 tools/apkmirror.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
-              --output base.apk
+              --output "$BASE_FILE"
           elif [ "$TYPE" = "github" ]; then
             python3 tools/github_source.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
               --apk-version "${{ steps.resolve.outputs.apk_version }}" \
-              --output base.apk
+              --output "$BASE_FILE"
           else
             echo "Unknown source.type: $TYPE"; exit 1
           fi
-          ls -la base.apk
+          ls -la "$BASE_FILE"
+
+      - name: Validate base package
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          BASE_FILE="${{ steps.download.outputs.base_file }}"
+          FILE_TYPE="${{ steps.download.outputs.file_type }}"
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          if [ "$FILE_TYPE" = "apk" ]; then
+            echo "Validating $BASE_FILE with aapt..."
+            AAPT_VER=$($BUILD_TOOLS_DIR/aapt dump badging "$BASE_FILE" | grep -oP "versionName='\K[^']+") || {
+              echo "ERROR: aapt cannot read $BASE_FILE - not a valid APK. Refusing to patch."; exit 1; }
+            echo "aapt version: $AAPT_VER (resolver: ${{ steps.resolve.outputs.apk_version }})"
+            if [ "$AAPT_VER" != "${{ steps.resolve.outputs.apk_version }}" ]; then
+              echo "ERROR: downloaded version $AAPT_VER != expected ${{ steps.resolve.outputs.apk_version }}, refusing to patch."; exit 1
+            fi
+          else
+            echo "Validating $BASE_FILE bundle contents..."
+            python3 -c "
+          import sys, zipfile
+          names = zipfile.ZipFile('$BASE_FILE').namelist()
+          apks = [n for n in names if n.endswith('.apk')]
+          print(f'{len(names)} zip entries, {len(apks)} APK entries')
+          sys.exit(0 if apks else 1)
+          " || { echo "ERROR: $BASE_FILE is not a valid bundle. Refusing to patch."; exit 1; }
+          fi
 
       - name: Setup Morphe CLI
         if: steps.check.outputs.skip != 'true'
@@ -205,7 +235,7 @@ jobs:
         run: |
           python3 tools/patch.py --config "${{ matrix.config }}" \
             --arch "${{ matrix.arch }}" \
-            --cli morphe-cli.jar --mpp patches.mpp --base base.apk \
+            --cli morphe-cli.jar --mpp patches.mpp --base "${{ steps.download.outputs.base_file }}" \
             --workdir . --manifest-out manifest.json
 
       - name: Sign APKs
@@ -223,11 +253,14 @@ jobs:
           KS_PASS="${KEYSTORE_PASSWORD:-android}"
           KEY_PASS="${KEY_PASSWORD:-android}"
           VER="${{ steps.resolve.outputs.apk_version }}"
+          BASE_FILE="${{ steps.download.outputs.base_file }}"
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
           echo "Build-tools: $BUILD_TOOLS_DIR"
-          # Sanity check: base APK version matches the resolver output
-          AAPT=$($BUILD_TOOLS_DIR/aapt dump badging base.apk | grep -oP "versionName='\K[^']+" || true)
-          echo "aapt base.apk version: $AAPT (resolver: $VER)"
+          # Sanity check (base already validated; APK version re-confirmed here)
+          if [ "${{ steps.download.outputs.file_type }}" = "apk" ]; then
+            AAPT=$($BUILD_TOOLS_DIR/aapt dump badging "$BASE_FILE" | grep -oP "versionName='\K[^']+" || true)
+            echo "aapt $BASE_FILE version: $AAPT (resolver: $VER)"
+          fi
           # Sign every file listed in the patch manifest (never reconstruct names).
           FILES=""
           for ROW in $(python3 -c "import json; [print(f\"{e['file']},{e['suffix']}\") for e in json.load(open('manifest.json'))]"); do
