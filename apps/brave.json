@@ -13,7 +13,10 @@
       {
         "name": "arm64",
         "asset": "BraveMonoarm64.apk"
-      }
+      },
+      {
+        "name": "arm32",
+        "asset": "BraveMonoarm.apk"
     ]
   },
   "patch_bundle": {
