@@ -2,7 +2,7 @@
   "id": "brave",
   "display_name": "Brave Browser",
   "package": "com.brave.browser",
-  "patch_repo": "kveld9/kveld-morphe-patches",
+  "patch_repo": "Fahry-a/kveld-morphe-patches",
   "allow_experimental": false,
   "source": {
     "type": "github",
