@@ -1,0 +1,30 @@
+{
+  "id": "adm",
+  "display_name": "Advanced Download Manager",
+  "package": "com.dv.adm",
+  "patch_repo": "arandomhooman/hoomans-morphe-patches",
+  "allow_experimental": false,
+  "source": {
+    "type": "apkmirror",
+    "file_type": "apk",
+    "archs": [
+      {
+        "name": "universal",
+        "variant_url": "https://www.apkmirror.com/apk/admtorrent/advanced-download-manager/variant-%7B%22arches_slug%22%3A%5B%22arm64-v8a%22%2C%22armeabi-v7a%22%2C%22x86%22%2C%22x86_64%22%5D%2C%22dpis_slug%22%3A%5B%22nodpi%22%5D%2C%22minapi_slug%22%3A%22minapi-26%22%7D/",
+        "slug_filter": "/apk/admtorrent/advanced-download-manager/",
+        "version_slug": "advanced-download-manager-"
+      }
+    ]
+  },
+  "patch_bundle": {
+    "type": "prebuilt"
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "app.morphe.android.apps.photos package, side-by-side with stock Photos",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}
