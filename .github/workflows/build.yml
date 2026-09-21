@@ -194,6 +194,11 @@ jobs:
               --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
               --output "$BASE_FILE"
+          elif [ "$TYPE" = "uptodown" ]; then
+            python3 tools/uptodown.py --config "${{ matrix.config }}" \
+              --arch "${{ matrix.arch }}" \
+              --exact-version "${{ steps.resolve.outputs.apk_version }}" \
+              --output "$BASE_FILE"
           elif [ "$TYPE" = "github" ]; then
             python3 tools/github_source.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
@@ -311,13 +316,16 @@ jobs:
 
   publish:
     needs: build
-    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.build.result != 'cancelled' }}
+    # One failing app must not block the others: with no fragments this job
+    # exits cleanly without touching the release.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: ready-*
           merge-multiple: true

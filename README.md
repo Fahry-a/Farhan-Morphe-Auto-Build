@@ -20,7 +20,8 @@ Release tags are months: `2026-09`, `2026-10`, ... Each release holds the latest
 3. Each pair checks the current month release: skip when all expected assets already exist.
 4. Downloads the prebuilt `.mpp` and the exact-version base package:
    - APKMirror: `tools/apkmirror.py --arch ...` (`apk` or `apkm` bundle) — fast path `curl_cffi` with Chrome impersonation, Playwright headless Chromium fallback for the Cloudflare JS challenge.
-   - APKPure: `tools/apkpure.py --arch ...` (`apk` or `xapk`) — versions page → version download page → direct file link, same dual-path strategy.
+   - APKPure: `tools/apkpure.py --arch ...` (`apk` or `xapk`) — versions page → version download page → direct file link, same dual-path strategy. Tries `apkpure.com` then `apkpure.net`.
+   - Uptodown: `tools/uptodown.py --arch ...` (`apk` or `xapk`) — app page (canonical slug auto-followed, locale hosts as fallback) → versions JSON → variant catalog → `-x` page; static `dw.uptodown.com` link when present, otherwise Playwright clicks the real download button.
    - GitHub: `tools/github_source.py --arch ...` — resolves `browser_download_url` via the API.
 5. Patches with the `MorpheApp/morphe-desktop` CLI via `tools/patch.py --arch ...`, which writes `manifest.json` listing every file actually produced. The Sign step reads the manifest and never reconstructs filenames by hand.
 6. Signs with `zipalign` + zip repack fix + `apksigner` using one shared keystore (`KEYSTORE_BASE64`).
@@ -125,6 +126,19 @@ detects `apk` vs `xapk` from the URL (`/b/APK/` vs `/b/XAPK/`):
 
 Both `apkpure.com` and `apkpure.net` are tried automatically (configurable
 per arch with `base_url`) if one domain blocks the CI network.
+
+For a Uptodown source, each arch only needs the page slug (canonical slugs
+are followed automatically when Uptodown redirects an alias):
+
+```json
+  "source": {
+    "type": "uptodown",
+    "file_type": "xapk",
+    "archs": [
+      {"name": "universal", "page_slug": "block-blast"}
+    ]
+  }
+```
 
 For other/new patches: point `patch_repo` at another Morphe patch repo and adjust `package`. No workflow fork needed.
 

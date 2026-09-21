@@ -5,7 +5,7 @@
   "patch_repo": "rushiranpise/morphe-patches",
   "allow_experimental": false,
   "source": {
-    "type": "apkpure",
+    "type": "uptodown",
     "file_type": "xapk",
     "archs": [
       {
