@@ -74,11 +74,15 @@ def gh(*args, repo):
 
 
 def get_release(repo, tag):
-    try:
-        out = gh("release", "view", tag, "--json", "assets,body", repo=repo)
-        return json.loads(out)
-    except RuntimeError:
+    """Return the release or None only when it genuinely does not exist."""
+    cmd = ["gh", "release", "view", tag, "--json", "assets,body", "--repo", repo]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode == 0:
+        return json.loads(proc.stdout)
+    error = proc.stderr.strip()
+    if "release not found" in error.lower() or "not found" in error.lower():
         return None
+    raise RuntimeError(f"{' '.join(cmd)} failed: {error}")
 
 
 def main():
