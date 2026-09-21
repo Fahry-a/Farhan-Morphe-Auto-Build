@@ -127,4 +127,4 @@ python3 tools/github_source.py --config apps/brave.json --arch arm64 --apk-versi
 python3 tools/patch.py --config apps/brave.json --arch arm64 --cli morphe-cli.jar --mpp patches.mpp --base base.apk
 ```
 
-`cuma-contoh.py` is the original Photos-only prototype; its modular replacement is `tools/apkmirror.py`.
+The original Photos-only prototype (`cuma-contoh.py`, since removed) was refactored into the modular `tools/apkmirror.py`.

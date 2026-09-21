@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generic per-app APKMirror downloader (configured via apps/<id>.json).
 
-Refactored from cuma-contoh.py (Google Photos only) into:
-  --variant-url, --slug-filter, --version-slug, --exact-version
+Supports --variant-url, --slug-filter, --version-slug, --exact-version
+and --file-type (apk for monolithic APKs, apkm for APK bundles).
 
 The strategy is unchanged:
   1. Fast path: curl_cffi with Chrome TLS impersonation.

@@ -1,0 +1,30 @@
+{
+  "id": "block-blast",
+  "display_name": "Block Blast",
+  "package": "com.block.juggle",
+  "patch_repo": "rushiranpise/morphe-patches",
+  "allow_experimental": false,
+  "source": {
+    "type": "apkmirror",
+    "file_type": "apkm",
+    "archs": [
+      {
+        "name": "universal",
+        "variant_url": "https://www.apkmirror.com/apk/admtorrent/advanced-download-manager/variant-%7B%22arches_slug%22%3A%5B%22arm64-v8a%22%2C%22armeabi-v7a%22%2C%22x86%22%2C%22x86_64%22%5D%2C%22dpis_slug%22%3A%5B%22120%22%2C%22160%22%2C%22213%22%2C%22240%22%2C%22320%22%2C%22480%22%2C%22640%22%5D%2C%22minapi_slug%22%3A%22minapi-26%22%7D/",
+        "slug_filter": "/apk/admtorrent/advanced-download-manager/",
+        "version_slug": "advanced-download-manager-"
+      }
+    ]
+  },
+  "patch_bundle": {
+    "type": "prebuilt"
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default flavor with all default ADM patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}
