@@ -57,6 +57,22 @@ def normalize_version(ver):
     return (ver or "").replace("-", ".").rstrip(".")
 
 
+def extract_version(href, version_slug):
+    """Extract the version part after version_slug (case-insensitive).
+
+    Anchored to a path segment starting with a digit, so short slugs like
+    X- never match /x-corp/. Captures the full dashed version including
+    suffixes like -release-0, -beta-1 or -downloadable
+    (e.g. twitter-12-19-1-release-0-release -> 12-19-1-release-0).
+    Falls back to leading digits/dashes.
+    """
+    seg = "/" + re.escape(version_slug)
+    m = re.search(seg + r"(\d.+)-release/", href, re.IGNORECASE)
+    if not m:
+        m = re.search(seg + r"([\d\-]+)", href, re.IGNORECASE)
+    return normalize_version(m.group(1)) if m else None
+
+
 def find_detail_link(soup, slug_filter, version_slug, exact_version=None):
     """Find an APKMirror detail link.
 
@@ -74,7 +90,7 @@ def find_detail_link(soup, slug_filter, version_slug, exact_version=None):
     for root in roots:
         for a in root.find_all("a", href=True):
             href = a["href"]
-            if slug_filter not in href:
+            if slug_filter.lower() not in href.lower():
                 continue
             if not (href.endswith("-download/") or "android-apk-download" in href):
                 continue
@@ -82,8 +98,7 @@ def find_detail_link(soup, slug_filter, version_slug, exact_version=None):
             if link in seen:
                 continue
             seen.add(link)
-            m = re.search(re.escape(version_slug) + r"([0-9\-]+)", href)
-            ver = normalize_version(m.group(1)) if m else None
+            ver = extract_version(href, version_slug)
             if not ver:
                 continue
             if want_norm and ver != want_norm:
