@@ -283,6 +283,11 @@ def _get_apkpure_package_playwright(page, versions_url, output_path, exact_versi
         return version_str, output_path
 
 
+def direct_file_url(package, version_code, file_type):
+    kind = "XAPK" if (file_type or "xapk") == "xapk" else "APK"
+    return f"https://d.apkpure.com/b/{kind}/{package}?versionCode={version_code}"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download a package from APKPure (generic per-app)")
     parser.add_argument("--config", help="Path to apps/<id>.json (apkpure type)")
@@ -299,6 +304,9 @@ def main():
     args = parser.parse_args()
 
     versions_urls = [args.versions_url] if args.versions_url else []
+    entry = {}
+    package = args.package or ""
+    cfg_file_type = None
     if args.config:
         with open(args.config) as fh:
             cfg = json.load(fh)
@@ -309,39 +317,65 @@ def main():
             entry = resolve_arch_entry(src, args.arch)
         except RuntimeError as e:
             parser.error(str(e))
+        package = package or cfg.get("package", "")
+        cfg_file_type = src.get("file_type")
         if not versions_urls:
             explicit = entry.get("versions_url")
             if explicit:
                 versions_urls = [explicit]
             else:
-                package = args.package or cfg.get("package", "")
                 slug = args.page_slug or entry.get("page_slug", "")
                 if not slug or not package:
                     parser.error("apkpure arch entry needs versions_url or (page_slug + package)")
                 versions_urls = [f"{b}/{slug}/{package}/versions"
                                  for b in candidate_bases(entry)]
-    if not versions_urls:
+    if not versions_urls and not (entry.get("version_codes") and args.exact_version):
         parser.error("--config or --versions-url is required")
 
     output_path = args.output or "base.apk"
     version_str, actual_path = "unknown", output_path
-    try:
+    file_type = args.file_type or cfg_file_type
+    # Direct-file mode: the HTML pages are heavily bot-guarded, but the file
+    # host is not. A version->versionCode map skips page scraping entirely.
+    version_codes = entry.get("version_codes") or {}
+    direct_code = version_codes.get(args.exact_version or "")
+    if direct_code and not args.check_version:
+        version_str = args.exact_version
+        file_url = direct_file_url(package, direct_code, file_type or "xapk")
+        actual_path = re.sub(r"\.(apk|xapk|apkm)$",
+                             ".xapk" if "/b/XAPK/" in file_url else ".apk",
+                             output_path)
+        print(f"[direct-file] Downloading (no page scraping): {file_url}")
         try:
-            version_str, actual_path = get_apkpure_package(
-                versions_urls, output_path, args.exact_version,
-                args.file_type, args.check_version)
-            if args.check_version:
-                return
+            if not HAS_CURL_CFFI:
+                raise RuntimeError("curl_cffi is not installed")
+            session = cffi_requests.Session(impersonate=IMPERSONATE)
+            download_file_url(session, file_url, versions_urls[0]
+                              if versions_urls else BASE_DEFAULT, actual_path)
         except Exception as e:
-            print(f"Direct scrape failed ({e}); retrying with Playwright...")
-            version_str, actual_path = get_apkpure_package_playwright(
-                versions_urls, output_path, args.exact_version,
-                args.file_type, args.check_version)
-            if args.check_version:
-                return
-    except Exception as e:
-        print(f"Failed: {e}")
-        sys.exit(1)
+            print(f"[direct-file] Failed ({e}); falling back to page scraping...")
+            direct_code = None
+    if not direct_code:
+        if args.exact_version and version_codes:
+            print(f"[direct-file] No versionCode mapped for {args.exact_version}; "
+                  "falling back to page scraping.")
+        try:
+            try:
+                version_str, actual_path = get_apkpure_package(
+                    versions_urls, output_path, args.exact_version,
+                    args.file_type, args.check_version)
+                if args.check_version:
+                    return
+            except Exception as e:
+                print(f"Direct scrape failed ({e}); retrying with Playwright...")
+                version_str, actual_path = get_apkpure_package_playwright(
+                    versions_urls, output_path, args.exact_version,
+                    args.file_type, args.check_version)
+                if args.check_version:
+                    return
+        except Exception as e:
+            print(f"Failed: {e}")
+            sys.exit(1)
 
     try:
         file_type = "xapk" if actual_path.endswith(".xapk") else "apk"

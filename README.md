@@ -119,13 +119,18 @@ detects `apk` vs `xapk` from the URL (`/b/APK/` vs `/b/XAPK/`):
     "type": "apkpure",
     "file_type": "xapk",
     "archs": [
-      {"name": "universal", "page_slug": "block-blast"}
+      {"name": "universal", "page_slug": "block-blast",
+       "version_codes": {"10.4.5": "10450"}}
     ]
   }
 ```
 
 Both `apkpure.com` and `apkpure.net` are tried automatically (configurable
-per arch with `base_url`) if one domain blocks the CI network.
+per arch with `base_url`) if one domain blocks the CI network. Because the
+HTML pages are heavily bot-guarded while the file host is not, an arch may
+also carry a `version_codes` map to skip page scraping entirely and download
+straight from `d.apkpure.com` (add the code for a new version when the patch
+bumps; the run tells you when a version has no mapped code):
 
 For a Uptodown source, each arch only needs the page slug (canonical slugs
 are followed automatically when Uptodown redirects an alias):
