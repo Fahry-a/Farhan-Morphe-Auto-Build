@@ -210,6 +210,9 @@ def resolve_pages_for_base(fetcher, base, code, exact_version, arch):
         raise RuntimeError("Version entry has no usable URL.")
     _, content = fetcher.get(version_url)
     soup = BeautifulSoup(content, "html.parser")
+    print(f"[uptodown] Version page: has-download-btn="
+          f"{soup.find(id='detail-download-button') is not None} "
+          f"has-variants-btn={soup.select_one('.button.variants[data-version]') is not None}")
 
     x_page = None
     variants_btn = soup.select_one(".button.variants[data-version]")
@@ -400,6 +403,34 @@ def get_uptodown_package_playwright(slug, output_path, exact_version, arch="univ
     raise RuntimeError(f"All Uptodown locale hosts failed. Last error: {last_err}")
 
 
+def _click_download(page, url, output_path, timeout_ms=300_000):
+    """Open url in the live browser, click the download button, save the file.
+
+    Prints page diagnostics first so bot-wall responses are visible in logs.
+    """
+    print(f"[playwright] -> {url}")
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    pw_wait_for_page(page)
+    try:
+        title = page.title()
+    except Exception:
+        title = "<unknown>"
+    html = page.content()
+    print(f"[playwright] title={title!r} len={len(html)} "
+          f"has-btn={'detail-download-button' in html} "
+          f"has-variants={'button variants' in html}")
+    with page.expect_download(timeout=timeout_ms) as dl_info:
+        btn = page.query_selector("#detail-download-button")
+        if btn is None:
+            raise RuntimeError(
+                f"Download button not found (title={title!r}, len={len(html)}).")
+        btn.click()
+    download = dl_info.value
+    print(f"[playwright] Saving ({download.suggested_filename}) to: {output_path}")
+    download.save_as(output_path)
+    return download.suggested_filename
+
+
 def _get_uptodown_package_playwright(page, base, output_path, exact_version,
                                      arch, file_type, check_version_only):
         print(f"[playwright] -> {base}")
@@ -408,14 +439,14 @@ def _get_uptodown_package_playwright(page, base, output_path, exact_version,
         soup = BeautifulSoup(page.content(), "html.parser")
         code_tag = soup.find("h1", id="detail-app-name")
         if code_tag is None:
-            raise RuntimeError("Not an app page.")
+            raise RuntimeError(f"Not an app page (title={page.title()!r}).")
         if check_version_only:
             return exact_version or "unknown", None
         code = code_tag.get("data-code")
         if not code:
             raise RuntimeError("App page has no application code.")
         fetcher = Fetcher()
-        version_str, _, x_page, static_link = resolve_pages_for_base(
+        version_str, version_url, x_page, static_link = resolve_pages_for_base(
             fetcher, base, code, exact_version, arch)
         if static_link:
             # Static link known: download it inside the live session.
@@ -429,26 +460,16 @@ def _get_uptodown_package_playwright(page, base, output_path, exact_version,
             print(f"[playwright] Saving ({download.suggested_filename}) to: {output_path}")
             download.save_as(output_path)
             return version_str, output_path
-        # Token-driven button: click it and catch the real download.
-        click_page = x_page
-        if not click_page:
-            raise RuntimeError("No clickable download page resolved.")
+        # Token-driven button: click whatever download page resolved, falling
+        # back to the version page itself (the button renders in a real browser
+        # even when static fetches get a degraded page).
+        click_page = x_page or version_url
         if output_path.endswith((".apk", ".xapk", ".apkm")):
             output_path = re.sub(r"\.(apk|xapk|apkm)$",
                                  ".xapk" if (file_type or "xapk") == "xapk" else ".apk",
                                  output_path)
         print(f"[playwright] Clicking download on: {click_page}")
-        page.goto(click_page, wait_until="domcontentloaded", timeout=60000)
-        pw_wait_for_page(page)
-        with page.expect_download(timeout=300_000) as dl_info:
-            btn = page.query_selector("#detail-download-button")
-            if btn:
-                btn.click()
-            else:
-                raise RuntimeError("Download button not found.")
-        download = dl_info.value
-        print(f"[playwright] Saving ({download.suggested_filename}) to: {output_path}")
-        download.save_as(output_path)
+        _click_download(page, click_page, output_path)
         return version_str, output_path
 
 
