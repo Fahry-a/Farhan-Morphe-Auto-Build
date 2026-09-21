@@ -335,10 +335,15 @@ def main():
     output_path = args.output or "base.apk"
     version_str, actual_path = "unknown", output_path
     file_type = args.file_type or cfg_file_type
+    if args.check_version and args.exact_version:
+        # Pinned version: nothing to discover.
+        print(f"LATEST_VERSION={args.exact_version}")
+        return
     # Direct-file mode: the HTML pages are heavily bot-guarded, but the file
     # host is not. A version->versionCode map skips page scraping entirely.
     version_codes = entry.get("version_codes") or {}
     direct_code = version_codes.get(args.exact_version or "")
+    direct_ok = False
     if direct_code and not args.check_version:
         version_str = args.exact_version
         file_url = direct_file_url(package, direct_code, file_type or "xapk")
@@ -352,11 +357,11 @@ def main():
             session = cffi_requests.Session(impersonate=IMPERSONATE)
             download_file_url(session, file_url, versions_urls[0]
                               if versions_urls else BASE_DEFAULT, actual_path)
+            direct_ok = True
         except Exception as e:
             print(f"[direct-file] Failed ({e}); falling back to page scraping...")
-            direct_code = None
-    if not direct_code:
-        if args.exact_version and version_codes:
+    if not direct_ok and not args.check_version:
+        if args.exact_version and version_codes and not direct_code:
             print(f"[direct-file] No versionCode mapped for {args.exact_version}; "
                   "falling back to page scraping.")
         try:

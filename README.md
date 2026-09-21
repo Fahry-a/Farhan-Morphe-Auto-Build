@@ -145,6 +145,21 @@ are followed automatically when Uptodown redirects an alias):
   }
 ```
 
+For a direct mirror source (used when every store blocks CI or prunes the
+needed version), each arch carries a URL with `{version}`/`{package}`
+placeholders:
+
+```json
+  "source": {
+    "type": "direct",
+    "file_type": "xapk",
+    "archs": [
+      {"name": "universal",
+       "url": "https://github.com/OWNER/REPO/releases/download/mirror-block-blast-{version}/block-blast-{version}.xapk"}
+    ]
+  }
+```
+
 For other/new patches: point `patch_repo` at another Morphe patch repo and adjust `package`. No workflow fork needed.
 
 ## Running locally

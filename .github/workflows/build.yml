@@ -199,6 +199,11 @@ jobs:
               --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
               --output "$BASE_FILE"
+          elif [ "$TYPE" = "direct" ]; then
+            python3 tools/direct.py --config "${{ matrix.config }}" \
+              --arch "${{ matrix.arch }}" \
+              --exact-version "${{ steps.resolve.outputs.apk_version }}" \
+              --output "$BASE_FILE"
           elif [ "$TYPE" = "github" ]; then
             python3 tools/github_source.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
