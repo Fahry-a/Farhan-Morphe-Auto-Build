@@ -1,0 +1,35 @@
+{
+  "id": "google-photos",
+  "display_name": "Google Photos",
+  "package": "com.google.android.apps.photos",
+  "patch_repo": "Akash-Sriram/morphe-google-photos",
+  "allow_experimental": false,
+  "release_tag_prefix": "photos-",
+  "source": {
+    "type": "apkmirror",
+    "variant_url": "https://www.apkmirror.com/apk/google-inc/photos/variant-%7B%22dpis_slug%22%3A%5B%22nodpi%22%5D%2C%22arches_slug%22%3A%5B%22arm64-v8a%22%2C%22armeabi-v7a%22%2C%22x86%22%2C%22x86_64%22%5D%7D/",
+    "slug_filter": "/apk/google-inc/photos/",
+    "version_slug": "google-photos-",
+    "file_type": "apk"
+  },
+  "patch_bundle": {
+    "type": "prebuilt"
+  },
+  "flavors": [
+    {
+      "name": "mod",
+      "description": "app.morphe.android.apps.photos package, side-by-side with stock Photos",
+      "patch_include": [],
+      "output_suffix": "-mod"
+    },
+    {
+      "name": "original",
+      "description": "Original com.google.android.apps.photos package, requires ADB uninstall / system app",
+      "patch_include": [
+        "Change to official package name",
+        "Disable Play Store updates"
+      ],
+      "output_suffix": "-original"
+    }
+  ]
+}
