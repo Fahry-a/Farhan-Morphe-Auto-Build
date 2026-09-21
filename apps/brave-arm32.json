@@ -1,5 +1,5 @@
 {
-  "id": "brave",
+  "id": "brave-arm32",
   "display_name": "Brave Browser Arm32",
   "package": "com.brave.browser",
   "patch_repo": "kveld9/kveld-morphe-patches",
