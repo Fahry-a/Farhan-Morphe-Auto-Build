@@ -1,16 +1,24 @@
 {
-  "id": "brave-arm64",
-  "display_name": "Brave Browser Arm64",
+  "id": "brave",
+  "display_name": "Brave Browser",
   "package": "com.brave.browser",
   "patch_repo": "kveld9/kveld-morphe-patches",
   "allow_experimental": false,
-  "release_tag_prefix": "brave-arm64-",
   "source": {
     "type": "github",
     "repo": "brave/brave-browser",
-    "asset": "BraveMonoarm64.apk",
     "tag_prefix": "v",
-    "file_type": "apk"
+    "file_type": "apk",
+    "archs": [
+      {
+        "name": "arm64",
+        "asset": "BraveMonoarm64.apk"
+      },
+      {
+        "name": "arm32",
+        "asset": "BraveMonoarm.apk"
+      }
+    ]
   },
   "patch_bundle": {
     "type": "prebuilt"

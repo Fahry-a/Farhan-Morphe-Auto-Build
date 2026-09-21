@@ -18,6 +18,8 @@ import re
 import sys
 import urllib.parse
 
+from common import resolve_arch_entry
+
 try:
     from curl_cffi import requests as cffi_requests
     HAS_CURL_CFFI = True
@@ -268,6 +270,7 @@ def main():
     parser.add_argument("--slug-filter", help="e.g. /apk/google-inc/photos/")
     parser.add_argument("--version-slug", help="e.g. google-photos-")
     parser.add_argument("--exact-version", help="Exact version from the resolver, e.g. 7.92.0.977185651")
+    parser.add_argument("--arch", help="Arch entry name from source.archs, e.g. arm64")
     parser.add_argument("--output", default="base.apk")
     parser.add_argument("--check-version", action="store_true")
     parser.add_argument("--direct-url", help="Skip scraping, download this URL directly")
@@ -282,9 +285,13 @@ def main():
         src = cfg["source"]
         if src.get("type") != "apkmirror":
             parser.error(f"config {args.config} is not an apkmirror source")
-        variant_url = variant_url or src["variant_url"]
-        slug_filter = slug_filter or src["slug_filter"]
-        version_slug = version_slug or src["version_slug"]
+        try:
+            entry = resolve_arch_entry(src, args.arch)
+        except RuntimeError as e:
+            parser.error(str(e))
+        variant_url = variant_url or entry.get("variant_url")
+        slug_filter = slug_filter or entry.get("slug_filter")
+        version_slug = version_slug or entry.get("version_slug")
     if not variant_url or not slug_filter or not version_slug:
         if not args.direct_url:
             parser.error("--config or (--variant-url + --slug-filter + --version-slug) is required")

@@ -11,6 +11,8 @@ import os
 import sys
 import urllib.request
 
+from common import resolve_arch_entry
+
 
 def api_get(url, token=None):
     req = urllib.request.Request(url, headers={
@@ -65,6 +67,7 @@ def main():
     parser.add_argument("--tag", help="e.g. v1.95.104")
     parser.add_argument("--asset", help="e.g. BraveMonoarm64.apk")
     parser.add_argument("--apk-version", help="Version without the v prefix, e.g. 1.95.104 (combined with tag_prefix)")
+    parser.add_argument("--arch", help="Arch entry name from source.archs, e.g. arm64")
     parser.add_argument("--output", default="base.apk")
     args = parser.parse_args()
 
@@ -76,7 +79,11 @@ def main():
         if src.get("type") != "github":
             parser.error(f"config {args.config} is not a github source")
         repo = repo or src["repo"]
-        asset = asset or src["asset"]
+        try:
+            entry = resolve_arch_entry(src, args.arch)
+        except RuntimeError as e:
+            parser.error(str(e))
+        asset = asset or entry.get("asset")
         prefix = src.get("tag_prefix", "v")
         if not tag and args.apk_version:
             tag = args.apk_version if args.apk_version.startswith(prefix) else f"{prefix}{args.apk_version}"

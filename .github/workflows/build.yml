@@ -10,7 +10,12 @@ on:
   workflow_dispatch:
     inputs:
       app:
-        description: 'App id (all / google-photos / brave / any new id in apps/)'
+        description: 'App id (all, or any id in apps/)'
+        required: false
+        default: 'all'
+        type: string
+      arch:
+        description: 'Arch name (all, or e.g. arm64)'
         required: false
         default: 'all'
         type: string
@@ -28,7 +33,7 @@ on:
         default: false
         type: boolean
       rebuild:
-        description: 'Force a rebuild even if the release already exists'
+        description: 'Force a rebuild even if the asset already exists'
         required: false
         default: false
         type: boolean
@@ -44,19 +49,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: list
+        env:
+          ONLY_APP: ${{ inputs.app }}
+          ONLY_ARCH: ${{ inputs.arch }}
         run: |
-          ONLY="${{ inputs.app }}"
-          if [ -z "$ONLY" ]; then ONLY="all"; fi
           MATRIX=$(python3 -c "
           import glob, json, os
-          only = os.environ.get('ONLY', 'all')
-          apps = sorted([p.split('/')[-1][:-5] for p in glob.glob('apps/*.json')])
-          if only and only != 'all':
-              apps = [a for a in apps if a == only]
-          print(json.dumps(apps))
+          only_app = os.environ.get('ONLY_APP') or 'all'
+          only_arch = os.environ.get('ONLY_ARCH') or 'all'
+          pairs = []
+          for path in sorted(glob.glob('apps/*.json')):
+              cfg = json.load(open(path))
+              if only_app != 'all' and cfg['id'] != only_app:
+                  continue
+              for arch in cfg['source'].get('archs', []):
+                  if only_arch != 'all' and arch['name'] != only_arch:
+                      continue
+                  pairs.append({'app': cfg['id'], 'arch': arch['name'], 'config': path})
+          print(json.dumps(pairs))
           ")
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
-          echo "Apps: $MATRIX"
+          echo "Pairs: $MATRIX"
 
   build:
     needs: setup
@@ -64,7 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: ${{ fromJson(needs.setup.outputs.matrix) }}
+        include: ${{ fromJson(needs.setup.outputs.matrix) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,10 +104,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CFG="apps/${{ matrix.app }}.json"
           EXTRA=""
           if [ "${{ inputs.allow_experimental }}" = "true" ]; then EXTRA="--allow-experimental"; fi
-          python3 tools/resolve_version.py --config "$CFG" $EXTRA --json-out resolved.json
+          python3 tools/resolve_version.py --config "${{ matrix.config }}" $EXTRA --json-out resolved.json
           cat resolved.json
           MPP_URL=$(python3 -c "import json; print(json.load(open('resolved.json'))['mpp_url'])")
           MPP_VER=$(python3 -c "import json; print(json.load(open('resolved.json'))['mpp_version'])")
@@ -103,24 +115,35 @@ jobs:
             APK_VER="${{ inputs.version_override }}"
             echo "Version override: $APK_VER"
           fi
-          PREFIX=$(python3 -c "import json; print(json.load(open('$CFG'))['release_tag_prefix'])")
           echo "mpp_url=$MPP_URL" >> $GITHUB_OUTPUT
           echo "mpp_version=$MPP_VER" >> $GITHUB_OUTPUT
           echo "apk_version=$APK_VER" >> $GITHUB_OUTPUT
-          echo "tag=${PREFIX}v${APK_VER}" >> $GITHUB_OUTPUT
 
-      - name: Check for an existing release
+      - name: Check monthly release for existing assets
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ steps.resolve.outputs.tag }}"
+          TAG=$(date -u +%Y-%m)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
           if [ "${{ inputs.rebuild }}" = "true" ]; then
             echo "skip=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists, skipping."
+          VER="${{ steps.resolve.outputs.apk_version }}"
+          EXPECTED=$(python3 -c "
+          import json
+          cfg = json.load(open('${{ matrix.config }}'))
+          print(' '.join('${{ matrix.app }}-${{ matrix.arch }}-v$VER' + f.get('output_suffix', '') + '.apk' for f in cfg['flavors']))
+          ")
+          echo "Expected: $EXPECTED"
+          HAVE=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+          MISSING=0
+          for f in $EXPECTED; do
+            echo "$HAVE" | grep -qx "$f" || MISSING=1
+          done
+          if [ "$MISSING" = "0" ]; then
+            echo "All assets already in $TAG, skipping."
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -137,13 +160,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CFG="apps/${{ matrix.app }}.json"
-          TYPE=$(python3 -c "import json; print(json.load(open('$CFG'))['source']['type'])")
+          TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source']['type'])")
           if [ -n "${{ inputs.direct_apk_url }}" ]; then
             echo "Using manual direct APK URL"
             python3 -c "
           from curl_cffi import requests
-          import sys
           url = '${{ inputs.direct_apk_url }}'
           r = requests.get(url, impersonate='chrome131', stream=True, timeout=120)
           r.raise_for_status()
@@ -155,11 +176,13 @@ jobs:
           print(f'{total:,} bytes')
           "
           elif [ "$TYPE" = "apkmirror" ]; then
-            python3 tools/apkmirror.py --config "$CFG" \
+            python3 tools/apkmirror.py --config "${{ matrix.config }}" \
+              --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
               --output base.apk
           elif [ "$TYPE" = "github" ]; then
-            python3 tools/github_source.py --config "$CFG" \
+            python3 tools/github_source.py --config "${{ matrix.config }}" \
+              --arch "${{ matrix.arch }}" \
               --apk-version "${{ steps.resolve.outputs.apk_version }}" \
               --output base.apk
           else
@@ -180,8 +203,10 @@ jobs:
       - name: Patch all flavors
         if: steps.check.outputs.skip != 'true'
         run: |
-          python3 tools/patch.py --config "apps/${{ matrix.app }}.json" \
-            --cli morphe-cli.jar --mpp patches.mpp --base base.apk --workdir .
+          python3 tools/patch.py --config "${{ matrix.config }}" \
+            --arch "${{ matrix.arch }}" \
+            --cli morphe-cli.jar --mpp patches.mpp --base base.apk \
+            --workdir . --manifest-out manifest.json
 
       - name: Sign APKs
         if: steps.check.outputs.skip != 'true'
@@ -197,54 +222,80 @@ jobs:
           # Defaults keep backward compatibility; set the secrets to change them.
           KS_PASS="${KEYSTORE_PASSWORD:-android}"
           KEY_PASS="${KEY_PASSWORD:-android}"
-          CFG="apps/${{ matrix.app }}.json"
-          APP="${{ matrix.app }}"
           VER="${{ steps.resolve.outputs.apk_version }}"
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
           echo "Build-tools: $BUILD_TOOLS_DIR"
           # Sanity check: base APK version matches the resolver output
           AAPT=$($BUILD_TOOLS_DIR/aapt dump badging base.apk | grep -oP "versionName='\K[^']+" || true)
           echo "aapt base.apk version: $AAPT (resolver: $VER)"
-          ASSETS=""
-          for FLAVOR in $(python3 -c "import json; print(' '.join(f['name'] for f in json.load(open('$CFG'))['flavors']))"); do
-            SUFFIX=$(python3 -c "import json; cfg=json.load(open('$CFG')); print(next(f.get('output_suffix','') for f in cfg['flavors'] if f['name']=='$FLAVOR'))")
-            UNSIGNED="${APP}-${FLAVOR}-unsigned.apk"
-            ALIGNED="${APP}-${FLAVOR}-aligned.apk"
-            FINAL="${APP}-v${VER}${SUFFIX}.apk"
-            echo "== Sign $FLAVOR -> $FINAL"
+          # Sign every file listed in the patch manifest (never reconstruct names).
+          FILES=""
+          for ROW in $(python3 -c "import json; [print(f\"{e['file']},{e['suffix']}\") for e in json.load(open('manifest.json'))]"); do
+            UNSIGNED="${ROW%,*}"
+            SUFFIX="${ROW#*,}"
+            FINAL="${{ matrix.app }}-${{ matrix.arch }}-v${VER}${SUFFIX}.apk"
+            ALIGNED="${UNSIGNED%.apk}-aligned.apk"
+            echo "== Sign $UNSIGNED -> $FINAL"
             $BUILD_TOOLS_DIR/zipalign -v 4 "$UNSIGNED" "$ALIGNED"
             python3 -c "import zipfile; i=zipfile.ZipFile('$ALIGNED','r'); o=zipfile.ZipFile('$ALIGNED.fixed','w',compression=zipfile.ZIP_DEFLATED); [o.writestr(x,i.read(x.filename)) for x in i.infolist()]; i.close(); o.close()"
             mv "$ALIGNED.fixed" "$ALIGNED"
             $BUILD_TOOLS_DIR/apksigner sign --ks release.keystore --ks-pass pass:"$KS_PASS" --key-pass pass:"$KEY_PASS" ${KEY_ALIAS:+--ks-key-alias "$KEY_ALIAS"} --out "$FINAL" "$ALIGNED"
-            ASSETS="$ASSETS $FINAL"
+            FILES="$FILES $FINAL"
           done
-          echo "ASSETS$ASSETS" | tr ' ' '\n'
-          echo "assets=$ASSETS" >> $GITHUB_OUTPUT
+          # Fragment consumed by the publish job.
+          python3 -c "
+          import json
+          cfg = json.load(open('${{ matrix.config }}'))
+          files = '''$FILES'''.split()
+          frag = {'app': cfg['id'], 'display': cfg.get('display_name', cfg['id']),
+                  'arch': '${{ matrix.arch }}',
+                  'apk_version': '$VER',
+                  'mpp_version': '${{ steps.resolve.outputs.mpp_version }}',
+                  'build_date': '$(date -u +%Y-%m-%d)',
+                  'files': files}
+          open('fragment-${{ matrix.app }}-${{ matrix.arch }}.json', 'w').write(json.dumps(frag, indent=2))
+          print(json.dumps(frag, indent=2))
+          "
           rm -f release.keystore
 
-      - name: Upload artifacts
+      - name: Upload build artifacts
         if: steps.check.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.app }}-${{ steps.resolve.outputs.tag }}
-          path: ${{ matrix.app }}-v*.apk
+          name: ready-${{ matrix.app }}-${{ matrix.arch }}
+          path: |
+            ${{ matrix.app }}-${{ matrix.arch }}-v*.apk
+            fragment-${{ matrix.app }}-${{ matrix.arch }}.json
 
-      - name: Publish release
-        if: steps.check.outputs.skip != 'true'
+  publish:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result != 'failure' && needs.build.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ready-*
+          merge-multiple: true
+          path: dist
+      - name: Update monthly release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          TAG="${{ steps.resolve.outputs.tag }}"
-          TITLE="${{ matrix.app }} v${{ steps.resolve.outputs.apk_version }} (mpp ${{ steps.resolve.outputs.mpp_version }})"
-          FILES=$(ls ${{ matrix.app }}-v*.apk)
-          # shellcheck disable=SC2086
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Updating assets of release $TAG"
-            # shellcheck disable=SC2086
-            gh release upload "$TAG" $FILES --clobber
-            gh release edit "$TAG" --title "$TITLE" --latest
-          else
-            echo "Creating release $TAG"
-            # shellcheck disable=SC2086
-            gh release create "$TAG" $FILES --title "$TITLE" --latest
+          TAG=$(date -u +%Y-%m)
+          ls -la dist || true
+          python3 -c "
+          import glob, json
+          frags = [json.load(open(p)) for p in sorted(glob.glob('dist/fragment-*.json'))]
+          open('builds.json', 'w').write(json.dumps({'builds': frags}, indent=2))
+          print(f'{len(frags)} bundle(s) to publish')
+          "
+          if [ "$(python3 -c "import json; print(len(json.load(open('builds.json'))['builds']))")" = "0" ]; then
+            echo "Nothing new, monthly release untouched."
+            exit 0
           fi
+          cp dist/*.apk . 2>/dev/null || true
+          python3 tools/monthly_release.py --tag "$TAG" --builds builds.json
