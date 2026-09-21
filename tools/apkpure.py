@@ -50,7 +50,18 @@ HEADERS = {
     ),
 }
 
-BASE = "https://apkpure.com"
+BASE_DEFAULT = "https://apkpure.com"
+BASE_FALLBACK = "https://apkpure.net"
+
+
+def candidate_bases(entry):
+    """Primary base first (entry base_url or .com), then the other domain."""
+    primary = (entry.get("base_url") or BASE_DEFAULT).rstrip("/")
+    other = BASE_FALLBACK if "apkpure.com" in primary else BASE_DEFAULT
+    bases = [primary]
+    if other != primary:
+        bases.append(other)
+    return bases
 
 
 def parse_version_tuple(ver_str):
@@ -62,7 +73,7 @@ def normalize_version(ver):
     return (ver or "").strip()
 
 
-def find_version_link(soup, package, exact_version=None):
+def find_version_link(soup, page_url, package, exact_version=None):
     """Find the .../download/<version> link on a versions page."""
     found = []
     seen = set()
@@ -75,7 +86,7 @@ def find_version_link(soup, package, exact_version=None):
         ver = normalize_version(urllib.parse.unquote(m.group(1)))
         if want and ver != want:
             continue
-        link = urllib.parse.urljoin(BASE, href)
+        link = urllib.parse.urljoin(page_url, href)
         if link in seen:
             continue
         seen.add(link)
@@ -88,15 +99,15 @@ def find_version_link(soup, package, exact_version=None):
     return best_link, best_ver
 
 
-def find_file_link(soup):
+def find_file_link(soup, page_url):
     """Extract the direct file URL from a version download page."""
     a_tag = soup.find("a", id="download_link")
     if a_tag and a_tag.get("href"):
-        return urllib.parse.urljoin(BASE, a_tag["href"])
+        return urllib.parse.urljoin(page_url, a_tag["href"])
     for sel in ("a.download-start-btn", "a.download-btn"):
         a_tag = soup.select_one(sel)
         if a_tag and a_tag.get("href"):
-            return urllib.parse.urljoin(BASE, a_tag["href"])
+            return urllib.parse.urljoin(page_url, a_tag["href"])
     return None
 
 
@@ -123,20 +134,39 @@ def download_file_url(session, file_url, referer, output_path):
     stream_to_file(resp, output_path)
 
 
-def get_apkpure_package(versions_url, output_path, exact_version=None,
+def package_from_url(versions_url):
+    m = re.search(r"apkpure\.(?:com|net)/([^/]+)/([^/]+)/versions", versions_url)
+    return m.group(2) if m else ""
+
+
+def get_apkpure_package(versions_urls, output_path, exact_version=None,
                         file_type=None, check_version_only=False):
-    print(f"[direct] Fetching: {versions_url}")
+    if isinstance(versions_urls, str):
+        versions_urls = [versions_urls]
     if not HAS_CURL_CFFI:
         raise RuntimeError("curl_cffi is required for the fast path. Install: pip install curl_cffi")
-    m = re.search(r"apkpure\.com/([^/]+)/([^/]+)/versions", versions_url)
-    package = m.group(2) if m else ""
     session = cffi_requests.Session(impersonate=IMPERSONATE)
+    last_err = None
+    for versions_url in versions_urls:
+        try:
+            return _get_apkpure_package(session, versions_url, output_path,
+                                        exact_version, file_type, check_version_only)
+        except Exception as e:
+            print(f"[direct] {versions_url} failed ({e}); trying next domain...")
+            last_err = e
+    raise RuntimeError(f"All APKPure domains failed. Last error: {last_err}")
+
+
+def _get_apkpure_package(session, versions_url, output_path, exact_version=None,
+                         file_type=None, check_version_only=False):
+    print(f"[direct] Fetching: {versions_url}")
+    package = package_from_url(versions_url)
 
     resp = session.get(versions_url, headers=HEADERS, timeout=30)
     if resp.status_code != 200:
         raise RuntimeError(f"HTTP Error {resp.status_code}: {resp.reason}")
     version_link, version_str = find_version_link(
-        BeautifulSoup(resp.text, "html.parser"), package, exact_version)
+        BeautifulSoup(resp.text, "html.parser"), versions_url, package, exact_version)
     if check_version_only:
         if not version_str:
             raise RuntimeError("Could not determine the version from the APKPure versions page.")
@@ -150,7 +180,7 @@ def get_apkpure_package(versions_url, output_path, exact_version=None,
     resp2 = session.get(version_link, headers=HEADERS, timeout=30)
     if resp2.status_code != 200:
         raise RuntimeError(f"HTTP Error {resp2.status_code}: {resp2.reason}")
-    file_url = find_file_link(BeautifulSoup(resp2.text, "html.parser"))
+    file_url = find_file_link(BeautifulSoup(resp2.text, "html.parser"), version_link)
     if not file_url:
         raise RuntimeError("Could not extract the file URL from the version page.")
 
@@ -172,10 +202,12 @@ def pw_wait_for_page(page, timeout=30000):
     page.wait_for_timeout(2000)
 
 
-def get_apkpure_package_playwright(versions_url, output_path, exact_version=None,
+def get_apkpure_package_playwright(versions_urls, output_path, exact_version=None,
                                    file_type=None, check_version_only=False):
     from playwright.sync_api import sync_playwright
 
+    if isinstance(versions_urls, str):
+        versions_urls = [versions_urls]
     print("[playwright] Launching headless Chromium...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -194,30 +226,43 @@ def get_apkpure_package_playwright(versions_url, output_path, exact_version=None
         page = ctx.new_page()
         page.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
 
-        m = re.search(r"apkpure\.com/([^/]+)/([^/]+)/versions", versions_url)
-        package = m.group(2) if m else ""
+        last_err = None
+        try:
+            for versions_url in versions_urls:
+                try:
+                    return _get_apkpure_package_playwright(
+                        page, versions_url, output_path, exact_version,
+                        file_type, check_version_only)
+                except Exception as e:
+                    print(f"[playwright] {versions_url} failed ({e}); trying next domain...")
+                    last_err = e
+        finally:
+            browser.close()
+    raise RuntimeError(f"All APKPure domains failed. Last error: {last_err}")
+
+
+def _get_apkpure_package_playwright(page, versions_url, output_path, exact_version=None,
+                                    file_type=None, check_version_only=False):
+        package = package_from_url(versions_url)
 
         print(f"[playwright] -> {versions_url}")
         page.goto(versions_url, wait_until="domcontentloaded", timeout=60000)
         pw_wait_for_page(page)
         version_link, version_str = find_version_link(
-            BeautifulSoup(page.content(), "html.parser"), package, exact_version)
+            BeautifulSoup(page.content(), "html.parser"), versions_url, package, exact_version)
         if check_version_only:
-            browser.close()
             if not version_str:
                 raise RuntimeError("[playwright] Could not determine the version.")
             print(f"LATEST_VERSION={version_str}")
             return version_str, None
         if not version_link:
-            browser.close()
             raise RuntimeError("[playwright] No download page found on the versions page.")
 
         print(f"[playwright] -> {version_link}")
         page.goto(version_link, wait_until="domcontentloaded", timeout=60000)
         pw_wait_for_page(page)
-        file_url = find_file_link(BeautifulSoup(page.content(), "html.parser"))
+        file_url = find_file_link(BeautifulSoup(page.content(), "html.parser"), version_link)
         if not file_url:
-            browser.close()
             raise RuntimeError("[playwright] Could not extract the file URL.")
 
         resolved_type = detect_type(file_url, file_type)
@@ -235,8 +280,7 @@ def get_apkpure_package_playwright(versions_url, output_path, exact_version=None
         download = dl_info.value
         print(f"[playwright] Saving ({download.suggested_filename}) to: {output_path}")
         download.save_as(output_path)
-        browser.close()
-    return version_str, output_path
+        return version_str, output_path
 
 
 def main():
@@ -254,7 +298,7 @@ def main():
     parser.add_argument("--check-version", action="store_true")
     args = parser.parse_args()
 
-    versions_url = args.versions_url
+    versions_urls = [args.versions_url] if args.versions_url else []
     if args.config:
         with open(args.config) as fh:
             cfg = json.load(fh)
@@ -265,31 +309,33 @@ def main():
             entry = resolve_arch_entry(src, args.arch)
         except RuntimeError as e:
             parser.error(str(e))
-        versions_url = versions_url or entry.get("versions_url")
-        package = args.package or cfg.get("package", "")
-        slug = args.page_slug or entry.get("page_slug", "")
-        if not versions_url:
-            if not slug or not package:
-                parser.error("apkpure arch entry needs versions_url or (page_slug + package)")
-            versions_url = f"{BASE}/{slug}/{package}/versions"
-    else:
-        package = args.package or ""
-        if not versions_url:
-            parser.error("--config or --versions-url is required")
+        if not versions_urls:
+            explicit = entry.get("versions_url")
+            if explicit:
+                versions_urls = [explicit]
+            else:
+                package = args.package or cfg.get("package", "")
+                slug = args.page_slug or entry.get("page_slug", "")
+                if not slug or not package:
+                    parser.error("apkpure arch entry needs versions_url or (page_slug + package)")
+                versions_urls = [f"{b}/{slug}/{package}/versions"
+                                 for b in candidate_bases(entry)]
+    if not versions_urls:
+        parser.error("--config or --versions-url is required")
 
     output_path = args.output or "base.apk"
     version_str, actual_path = "unknown", output_path
     try:
         try:
             version_str, actual_path = get_apkpure_package(
-                versions_url, output_path, args.exact_version,
+                versions_urls, output_path, args.exact_version,
                 args.file_type, args.check_version)
             if args.check_version:
                 return
         except Exception as e:
             print(f"Direct scrape failed ({e}); retrying with Playwright...")
             version_str, actual_path = get_apkpure_package_playwright(
-                versions_url, output_path, args.exact_version,
+                versions_urls, output_path, args.exact_version,
                 args.file_type, args.check_version)
             if args.check_version:
                 return

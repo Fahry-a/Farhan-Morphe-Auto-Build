@@ -123,6 +123,9 @@ detects `apk` vs `xapk` from the URL (`/b/APK/` vs `/b/XAPK/`):
   }
 ```
 
+Both `apkpure.com` and `apkpure.net` are tried automatically (configurable
+per arch with `base_url`) if one domain blocks the CI network.
+
 For other/new patches: point `patch_repo` at another Morphe patch repo and adjust `package`. No workflow fork needed.
 
 ## Running locally
