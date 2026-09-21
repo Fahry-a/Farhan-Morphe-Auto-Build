@@ -18,8 +18,9 @@ Release tags are months: `2026-09`, `2026-10`, ... Each release holds the latest
 1. `setup` expands every `apps/*.json` into `(app, arch)` matrix pairs.
 2. `tools/resolve_version.py` (stdlib only): reads `patches-bundle.json` -> `.mpp` version, then `patches-list.json` at tag `v<mpp>` -> filters by `packageName` -> picks the highest stable target (`allow_experimental: true` opts into experimental targets).
 3. Each pair checks the current month release: skip when all expected assets already exist.
-4. Downloads the prebuilt `.mpp` and the exact-version base APK:
-   - APKMirror: `tools/apkmirror.py --arch ...` — fast path `curl_cffi` with Chrome impersonation, Playwright headless Chromium fallback for the Cloudflare JS challenge.
+4. Downloads the prebuilt `.mpp` and the exact-version base package:
+   - APKMirror: `tools/apkmirror.py --arch ...` (`apk` or `apkm` bundle) — fast path `curl_cffi` with Chrome impersonation, Playwright headless Chromium fallback for the Cloudflare JS challenge.
+   - APKPure: `tools/apkpure.py --arch ...` (`apk` or `xapk`) — versions page → version download page → direct file link, same dual-path strategy.
    - GitHub: `tools/github_source.py --arch ...` — resolves `browser_download_url` via the API.
 5. Patches with the `MorpheApp/morphe-desktop` CLI via `tools/patch.py --arch ...`, which writes `manifest.json` listing every file actually produced. The Sign step reads the manifest and never reconstructs filenames by hand.
 6. Signs with `zipalign` + zip repack fix + `apksigner` using one shared keystore (`KEYSTORE_BASE64`).
@@ -107,6 +108,21 @@ Every download is validated before patching: APKs must open in `aapt`
 with the expected version, bundles must contain APK entries. A bad file
 fails the run with a clear message instead of a cryptic patcher NPE.
 
+For an APKPure source, each arch only needs the page slug (the package
+comes from the app level). The downloader finds the exact version on the
+versions listing, follows its download page to the direct file link, and
+detects `apk` vs `xapk` from the URL (`/b/APK/` vs `/b/XAPK/`):
+
+```json
+  "source": {
+    "type": "apkpure",
+    "file_type": "xapk",
+    "archs": [
+      {"name": "universal", "page_slug": "block-blast"}
+    ]
+  }
+```
+
 For other/new patches: point `patch_repo` at another Morphe patch repo and adjust `package`. No workflow fork needed.
 
 ## Running locally
@@ -121,6 +137,7 @@ python3 tools/resolve_version.py --config apps/brave.json
 
 # 2. Download (Photos needs a Cloudflare-capable network)
 python3 tools/apkmirror.py --config apps/google-photos.json --arch universal --exact-version 7.92.0.977185651 --output base.apk
+python3 tools/apkpure.py --config apps/block-blast.json --arch universal --exact-version 10.4.5 --output base.xapk
 python3 tools/github_source.py --config apps/brave.json --arch arm64 --apk-version 1.95.104 --output base.apk
 
 # 3. Patch (needs the morphe-desktop jar + Java 21)

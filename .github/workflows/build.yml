@@ -163,7 +163,11 @@ jobs:
         run: |
           TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source']['type'])")
           FILE_TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source'].get('file_type', 'apk'))")
-          if [ "$FILE_TYPE" = "apkm" ]; then BASE_FILE="base.apkm"; else BASE_FILE="base.apk"; fi
+          case "$FILE_TYPE" in
+            apkm) BASE_FILE="base.apkm" ;;
+            xapk) BASE_FILE="base.xapk" ;;
+            *) BASE_FILE="base.apk" ;;
+          esac
           echo "base_file=$BASE_FILE" >> $GITHUB_OUTPUT
           echo "file_type=$FILE_TYPE" >> $GITHUB_OUTPUT
           if [ -n "${{ inputs.direct_apk_url }}" ]; then
@@ -185,6 +189,11 @@ jobs:
               --arch "${{ matrix.arch }}" \
               --exact-version "${{ steps.resolve.outputs.apk_version }}" \
               --output "$BASE_FILE"
+          elif [ "$TYPE" = "apkpure" ]; then
+            python3 tools/apkpure.py --config "${{ matrix.config }}" \
+              --arch "${{ matrix.arch }}" \
+              --exact-version "${{ steps.resolve.outputs.apk_version }}" \
+              --output "$BASE_FILE"
           elif [ "$TYPE" = "github" ]; then
             python3 tools/github_source.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
@@ -193,7 +202,7 @@ jobs:
           else
             echo "Unknown source.type: $TYPE"; exit 1
           fi
-          ls -la "$BASE_FILE"
+          ls -la base.*
 
       - name: Validate base package
         if: steps.check.outputs.skip != 'true'

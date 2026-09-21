@@ -44,10 +44,10 @@ def validate_package(path, file_type):
         raise RuntimeError(f"{path} is not a valid zip/APK file")
     with zipfile.ZipFile(path) as zf:
         names = zf.namelist()
-    if file_type == "apkm":
+    if file_type in ("apkm", "xapk"):
         apks = [n for n in names if n.endswith(".apk")]
         if not apks:
-            raise RuntimeError(f"{path} is not a valid APKM bundle (no APK entries inside)")
+            raise RuntimeError(f"{path} is not a valid bundle (no APK entries inside)")
     else:
         if "AndroidManifest.xml" not in names:
             raise RuntimeError(
