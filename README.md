@@ -64,7 +64,7 @@ apksigner verify --print-certs output.apk
 
 ## Adding a new app
 
-Add one `apps/<id>.json` file — no code or workflow changes needed. The `id` is only used for matrix naming and filenames; tools read everything else from the file:
+Add one `apps/<id>.json` file — no code or workflow changes needed. The `id` is only used for matrix naming and filenames; tools read everything else from the file. Set `"enabled": false` to park an app without deleting its config (e.g. while its stores block CI):
 
 ```json
 {

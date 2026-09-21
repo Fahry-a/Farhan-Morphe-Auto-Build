@@ -60,6 +60,8 @@ jobs:
           pairs = []
           for path in sorted(glob.glob('apps/*.json')):
               cfg = json.load(open(path))
+              if cfg.get("enabled", True) is False:
+                  continue
               if only_app != 'all' and cfg['id'] != only_app:
                   continue
               for arch in cfg['source'].get('archs', []):

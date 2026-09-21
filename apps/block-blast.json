@@ -1,5 +1,6 @@
 {
   "id": "block-blast",
+  "enabled": false,
   "display_name": "Block Blast",
   "package": "com.block.juggle",
   "patch_repo": "rushiranpise/morphe-patches",
