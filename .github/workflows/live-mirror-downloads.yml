@@ -2,7 +2,7 @@ name: Live Mirror Downloads
 
 on:
   push:
-    paths: ['tools/**', 'requirements.txt']
+    paths: ['tools/**', 'tests/**', 'requirements.txt']
   workflow_dispatch:
   schedule:
     - cron: '30 2 * * 1'
