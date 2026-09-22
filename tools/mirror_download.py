@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Download an exact APK version from multiple public mirrors.
-
-The downloader is deliberately a thin fallback layer: each mirror must return
-the requested version, and every downloaded file is validated before it is
-accepted. Existing APKMirror handling is reused so its Playwright fallback
-continues to work.
-"""
+"""Download an exact APK version from multiple public mirrors."""
 import argparse
 import json
 import os
@@ -14,9 +8,9 @@ import urllib.request
 from pathlib import Path
 
 try:
-    from common import resolve_arch_entry, validate_package
+    from common import validate_package
 except ModuleNotFoundError:
-    from tools.common import resolve_arch_entry, validate_package
+    from tools.common import validate_package
 
 
 def http_get(url, headers=None, timeout=60):
@@ -24,6 +18,21 @@ def http_get(url, headers=None, timeout=60):
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36"
     })
     return urllib.request.urlopen(req, timeout=timeout)
+
+
+def http_read(url, headers=None, timeout=60):
+    """Read a page with browser impersonation when curl_cffi is available."""
+    try:
+        from curl_cffi import requests
+        r = requests.get(
+            url, impersonate="chrome131", timeout=timeout,
+            allow_redirects=True, headers=headers or {"User-Agent": "Mozilla/5.0"},
+        )
+        r.raise_for_status()
+        return r.content
+    except ImportError:
+        with http_get(url, headers=headers, timeout=timeout) as r:
+            return r.read()
 
 
 def download_url(url, output):
@@ -49,59 +58,60 @@ def download_url(url, output):
 def apkpure_link(package, name, version):
     from bs4 import BeautifulSoup
     url = f"https://apkpure.net/{name}/{package}/download/{version}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-               "Referer": "https://apkpure.net/"}
-    with http_get(url, headers) as r:
-        soup = BeautifulSoup(r.read(), "html.parser")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+        "Referer": "https://apkpure.net/",
+    }
+    soup = BeautifulSoup(http_read(url, headers), "html.parser")
     node = soup.find("a", id="download_link")
     if not node or not node.get("href"):
         raise RuntimeError("APKPure download link not found")
     return node["href"]
 
 
+def _uptodown_download_url(page_html):
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(page_html, "html.parser")
+    button = soup.find("button", id="detail-download-button")
+    if not button or not button.get("data-url"):
+        raise RuntimeError("Uptodown download token not found")
+    data_url = button["data-url"]
+    return data_url if data_url.startswith(("http://", "https://")) else         f"https://dw.uptodown.com/dwn/{data_url}"
+
+
+def _uptodown_page_version(page_html):
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(page_html, "html.parser")
+    version = soup.select_one("div.version")
+    if version:
+        return version.get_text(strip=True).lstrip("v")
+    return None
+
+
 def uptodown_link(package, name, version):
     from bs4 import BeautifulSoup
-    slug_candidates = [name, package.replace(".", "-")]
-    if package.startswith("com."):
-        parts = package.split(".")
-        slug_candidates += [parts[1], f"com-{parts[1]}", parts[-1]]
-    seen = set()
-    for slug in slug_candidates:
-        if not slug or slug in seen:
+    base = f"https://{name}.en.uptodown.com/android"
+
+    # Current release page. AudioRelay 0.26.1 is currently exposed here.
+    page_html = http_read(f"{base}/download")
+    if _uptodown_page_version(page_html) == version:
+        return _uptodown_download_url(page_html)
+
+    # Historical versions are linked from the HTML archive; the old JSON
+    # endpoint used here previously has been retired.
+    versions_html = http_read(f"{base}/versions")
+    soup = BeautifulSoup(versions_html, "html.parser")
+    for text_node in soup.find_all(string=lambda s: s and s.strip().lstrip("v") == version):
+        link = text_node.find_parent("a", href=True)
+        if not link:
             continue
-        seen.add(slug)
-        base = f"https://{slug}.en.uptodown.com/android"
-        try:
-            with http_get(f"{base}/versions") as r:
-                soup = BeautifulSoup(r.read(), "html.parser")
-            title = soup.find("h1", id="detail-app-name")
-            if not title or not title.get("data-code"):
-                continue
-            code = title["data-code"]
-            page = 1
-            while page <= 50:
-                with http_get(f"{base}/apps/{code}/versions/{page}") as r:
-                    data = json.loads(r.read())
-                entries = data.get("data", [])
-                if not entries:
-                    break
-                for entry in entries:
-                    if entry.get("version") != version:
-                        continue
-                    v = entry["versionURL"]
-                    version_url = f"{v['url']}/{v['extraURL']}/{v['versionID']}"
-                    with http_get(version_url) as r:
-                        page_html = r.read()
-                    soup = BeautifulSoup(page_html, "html.parser")
-                    button = soup.find("button", id="detail-download-button")
-                    if not button:
-                        continue
-                    data_url = button.get("data-url")
-                    if data_url:
-                        return f"https://dw.uptodown.com/dwn/{data_url}"
-                page += 1
-        except Exception as exc:
-            print(f"[Uptodown] {slug}: {exc}", file=sys.stderr)
+        href = link["href"]
+        if href.startswith("/"):
+            href = f"https://{name}.en.uptodown.com{href}"
+        version_html = http_read(href)
+        if _uptodown_page_version(version_html) == version:
+            return _uptodown_download_url(version_html)
+
     raise RuntimeError(f"Uptodown version {version} not found")
 
 
@@ -115,30 +125,31 @@ def aptoide_link(package, version, arch):
         if cpu:
             encoded = base64.b64encode(f"myCPU={cpu}&leanback=0".encode()).decode()
             q = f"&q={encoded}"
+
     with http_get(f"{base}listAppVersions?package_name={package}&limit=50{q}") as r:
         data = json.loads(r.read())
-    vercode = next((x["file"]["vercode"] for x in data["datalist"]["list"]
-                     if x["file"]["vername"] == version), None)
+
+    entries = data.get("datalist", {}).get("list")
+    if entries is None:
+        entries = data.get("list", [])
+    vercode = next(
+        (x["file"]["vercode"] for x in entries
+         if x.get("file", {}).get("vername") == version), None)
     if not vercode:
         raise RuntimeError(f"Aptoide version {version} not found")
+
     with http_get(f"{base}getAppMeta?package_name={package}&vercode={vercode}{q}") as r:
         data = json.loads(r.read())
-    return data["data"]["file"]["path"]
-
-
-def download_apkmirror(config, arch, version, output):
-    from apkmirror import get_apkmirror_apk, resolve_arch_entry
-    entry = resolve_arch_entry(config["source"], arch)
-    return get_apkmirror_apk(entry["variant_url"], output, entry["slug_filter"],
-                             entry["version_slug"], exact_version=version)
+    try:
+        return data["data"]["file"]["path"]
+    except KeyError as exc:
+        raise RuntimeError("Aptoide metadata response has no download path") from exc
 
 
 def download_from_mirror(kind, cfg, arch, version, output):
     package = cfg["package"]
     mirror = next((m for m in cfg["source"].get("mirrors", []) if m["type"] == kind), {})
     name = mirror.get("name") or cfg.get("display_name", cfg["id"]).lower().replace(" ", "-")
-    if kind == "apkmirror":
-        return download_apkmirror(cfg, arch, version, output)
     if kind == "apkpure":
         download_url(apkpure_link(package, name, version), output)
     elif kind == "uptodown":
