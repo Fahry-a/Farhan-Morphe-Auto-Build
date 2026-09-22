@@ -266,6 +266,31 @@ class MirrorDownloaderTests(unittest.TestCase):
         )
 
     @patch("tools.mirror_download._download_uptodown_cdn")
+    @patch("tools.mirror_download._uptodown_scrape_link", return_value="https://example.test/fallback.apk")
+    @patch("tools.mirror_download.uptodown_link")
+    def test_download_from_mirror_uptodown_falls_back_after_auth_410(
+        self, mock_link, mock_scrape, mock_download
+    ):
+        import urllib.error
+
+        mock_link.side_effect = urllib.error.HTTPError(
+            "https://www.uptodown.app/eapi/auth/token",
+            410, "Gone", {}, None,
+        )
+        cfg = {
+            "id": "test",
+            "package": "com.example.test",
+            "source": {"mirrors": [{"type": "uptodown", "name": "example"}]},
+        }
+        self.assertEqual(
+            download_from_mirror("uptodown", cfg, "universal", "1.2.3", "out.apk"),
+            "1.2.3",
+        )
+        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3")
+        mock_scrape.assert_called_once_with("example", "1.2.3")
+        mock_download.assert_called_once_with("https://example.test/fallback.apk", "out.apk")
+
+    @patch("tools.mirror_download._download_uptodown_cdn")
     @patch("tools.mirror_download.uptodown_link", return_value="https://example.test/a.apk")
     def test_download_from_mirror_uptodown(self, mock_link, mock_download):
         cfg = {
