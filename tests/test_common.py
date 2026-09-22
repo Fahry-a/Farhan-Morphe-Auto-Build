@@ -32,7 +32,7 @@ class CommonTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "base.apkm")
             with zipfile.ZipFile(path, "w") as zf:
-                                zf.writestr("base.apk", b"x" * 1_000_000)
+                zf.writestr("base.apk", b"x" * 1_000_000)
                 zf.writestr("split_config.arm64_v8a.apk", b"x")
             self.assertGreater(validate_package(path, "apkm"), 0)
 
