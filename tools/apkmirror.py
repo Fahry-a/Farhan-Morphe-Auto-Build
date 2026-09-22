@@ -323,11 +323,12 @@ def main():
         print(f"Bundle output renamed to: {output_path}")
 
     version_str = "unknown"
+    partial_path = output_path + ".partial"
     try:
         if args.direct_url:
             print(f"Downloading direct URL: {args.direct_url}")
             if HAS_CURL_CFFI:
-                stream_to_file(cffi_get(None, args.direct_url, HEADERS, stream=True), output_path)
+                stream_to_file(cffi_get(None, args.direct_url, HEADERS, stream=True), partial_path)
             else:
                 raise RuntimeError("curl_cffi is not installed")
         elif args.check_version:
@@ -349,14 +350,25 @@ def main():
                 version_str = get_apkmirror_apk_playwright(
                     variant_url, output_path, slug_filter, version_slug, args.exact_version)
     except Exception as e:
+        try:
+            os.unlink(partial_path)
+        except FileNotFoundError:
+            pass
         print(f"Failed: {e}")
         print("Use --direct-url as a manual fallback.")
         sys.exit(1)
 
     if not args.check_version:
         try:
-            entries = validate_package(output_path, file_type)
+            entries = validate_package(
+                partial_path, file_type, expected_version=args.exact_version
+            )
+            os.replace(partial_path, output_path)
         except RuntimeError as e:
+            try:
+                os.unlink(partial_path)
+            except FileNotFoundError:
+                pass
             print(f"Validation failed: {e}")
             sys.exit(1)
         print(f"OK {output_path} ({os.path.getsize(output_path):,} bytes, "
