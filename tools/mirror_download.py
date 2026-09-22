@@ -420,7 +420,21 @@ def _uptodown_scrape_link(name, version):
     from bs4 import BeautifulSoup
 
     base = f"https://{name}.en.uptodown.com/android"
-    app_html = http_read(base)
+    # Uptodown can transiently return HTTP 410 to hosted CI clients.
+    # Retry the public app page before giving up; exact-version resolution
+    # remains mandatory and no version fallback is allowed.
+    last_exc = None
+    for attempt in range(3):
+        try:
+            app_html = http_read(base)
+            break
+        except Exception as exc:
+            if _http_status(exc) != 410 or attempt == 2:
+                raise
+            last_exc = exc
+            time.sleep(2 ** attempt)
+    else:
+        raise last_exc
     soup = BeautifulSoup(app_html, "html.parser")
     app = soup.find(id="detail-app-name")
     app_id = app.get("data-code") if app else None
