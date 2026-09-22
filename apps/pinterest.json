@@ -15,10 +15,12 @@
       },
       {
         "type": "apkpure",
-        "name": "pinterest"
+        "name": "pinterest",
+        "file_type": "xapk"
       },
       {
-        "type": "aptoide"
+        "type": "aptoide",
+        "file_type": "apk"
       }
     ],
     "archs": [
