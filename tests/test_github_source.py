@@ -30,7 +30,8 @@ class GitHubSourceTests(unittest.TestCase):
             )
 
             self.assertEqual(entries, 42)
-            self.assertEqual(open(output, "rb").read(), b"partial")
+            with open(output, "rb") as fh:
+                self.assertEqual(fh.read(), b"partial")
             self.assertFalse(os.path.exists(output + ".partial"))
             mock_validate.assert_called_once_with(
                 output + ".partial",
