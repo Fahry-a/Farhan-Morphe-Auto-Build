@@ -1,0 +1,41 @@
+{
+  "id": "pinterest",
+  "display_name": "Pinterest",
+  "package": "com.pinterest",
+  "patch_repo": "browzomje/browzomje-patches",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "apk",
+    "mirrors": [
+      {
+        "type": "apkpure",
+        "name": "pinterest"
+      },
+      {
+        "type": "uptodown",
+        "name": "pinterest"
+      },
+      {
+        "type": "aptoide"
+      }
+    ],
+    "archs": [
+      {
+        "name": "universal",
+        "version_slug": "pinterest-"
+      }
+    ]
+  },
+  "patch_bundle": {
+    "type": "prebuilt"
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default browzomje Pinterest patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}
