@@ -370,6 +370,26 @@ class MirrorDownloaderTests(unittest.TestCase):
             _uptodown_auth_token(retries=2)
         self.assertEqual(mock_urlopen.call_count, 2)
 
+    @patch("tools.mirror_download.time.sleep")
+    @patch("tools.mirror_download.http_read")
+    def test_uptodown_scrape_retries_transient_410(self, mock_read, mock_sleep):
+        class HttpError(Exception):
+            def __init__(self, status):
+                self.response = type("Response", (), {"status_code": status})()
+                super().__init__(f"HTTP Error {status}")
+
+        mock_read.side_effect = [
+            HttpError(410),
+            b'<div id="detail-app-name" data-code="123"></div>',
+            b'{"data":[{"version":"0.26.1","versionURL":{"url":"https://audiorelay.en.uptodown.com/android/download","extraURL":"x","versionID":26100}}]}',
+            b'<div class="version">0.26.1</div><button id="detail-download-button" data-url="token-123"></button>',
+        ]
+        self.assertEqual(
+            _uptodown_scrape_link("audiorelay", "0.26.1"),
+            "https://dw.uptodown.com/dwn/token-123",
+        )
+        self.assertEqual(mock_sleep.call_count, 1)
+
     @patch("tools.mirror_download.http_read")
     def test_uptodown_scrape_exact_version(self, mock_read):
         mock_read.side_effect = [
