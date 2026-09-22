@@ -295,7 +295,7 @@ highest supported target
 
 The resolver returns the MPP version, MPP URL and supported APK version.
 
-There is deliberately no version_override workflow input.
+There is deliberately no arbitrary application-version input.
 
 This prevents a user from forcing an APK version that the selected Morphe patch does not declare as compatible.
 
