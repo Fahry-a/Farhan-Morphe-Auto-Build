@@ -326,7 +326,7 @@ class MirrorDownloaderTests(unittest.TestCase):
             "1.2.3",
         )
         mock_link.assert_called_once_with("com.example.test", "example", "1.2.3", "apk")
-        mock_scrape.assert_called_once_with("example", "1.2.3")
+        mock_scrape.assert_called_once_with("example", "1.2.3", "apk")
         mock_download.assert_called_once_with("https://example.test/fallback.apk", "out.apk")
 
     @patch("tools.mirror_download._download_uptodown_cdn")
@@ -341,7 +341,7 @@ class MirrorDownloaderTests(unittest.TestCase):
             download_from_mirror("uptodown", cfg, "universal", "1.2.3", "out.apk"),
             "1.2.3",
         )
-        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3")
+        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3", "apk")
         mock_download.assert_called_once_with("https://example.test/a.apk", "out.apk")
 
     @patch("tools.mirror_download.http_read")
