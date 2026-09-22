@@ -76,7 +76,9 @@ def _uptodown_download_url(page_html):
     if not button or not button.get("data-url"):
         raise RuntimeError("Uptodown download token not found")
     data_url = button["data-url"]
-    if data_url.startswith(("http://", "https://")):\n        return data_url\n    return f"https://dw.uptodown.com/dwn/{data_url}"
+    if data_url.startswith(("http://", "https://")):
+        return data_url
+    return f"https://dw.uptodown.com/dwn/{data_url}"
 
 
 def _uptodown_page_version(page_html):
@@ -159,7 +161,8 @@ def download_from_mirror(kind, cfg, arch, version, output):
     package = cfg["package"]
     mirror = next((m for m in cfg["source"].get("mirrors", []) if m["type"] == kind), {})
     name = mirror.get("name") or cfg.get("display_name", cfg["id"]).lower().replace(" ", "-")
-    if kind == "apkmirror":\n        return download_apkmirror(cfg, arch, version, output)\n    if kind == "apkpure":
+    if kind == "apkmirror":
+        return download_apkmirror(cfg, arch, version, output)\n    if kind == "apkpure":
         download_url(apkpure_link(package, name, version), output)
     elif kind == "uptodown":
         download_url(uptodown_link(package, name, version), output)
