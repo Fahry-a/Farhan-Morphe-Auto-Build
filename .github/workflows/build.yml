@@ -63,4 +63,10 @@ jobs:
           if [ -n "$DIRECT_APK_URL" ] && { [ "$ONLY_APP" = "all" ] || [ "$ONLY_ARCH" = "all" ]; }; then
             echo "::error::direct_apk_url requires a single app and a single arch."
             exit 1
-          fi
+          fi      - name: Validate base package
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          BASE_FILE="${{ steps.download.outputs.base_file }}"
+          FILE_TYPE="${{ steps.download.outputs.file_type }}"
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          python3 -c "from tools.common import validate_package; print(f'Validated {BASE_FILE}: {validate_package(BASE_FILE, FILE_TYPE, expected_version=\"${{ steps.resolve.outputs.apk_version }}\", aapt_path=\"{BUILD_TOOLS_DIR}/aapt\")} ZIP entries')"
