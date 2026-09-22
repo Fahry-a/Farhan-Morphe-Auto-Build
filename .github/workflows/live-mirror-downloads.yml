@@ -1,0 +1,40 @@
+name: Live Mirror Downloads
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 2 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  mirror-downloads:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - name: Install dependencies
+        run: uv pip install --system -r requirements.txt
+      - name: Locate Android aapt
+        id: aapt
+        run: |
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -perm -111 | sort -V | tail -n 1 || true)"
+          if [ -z "$AAPT" ]; then
+            sudo apt-get update
+            sudo apt-get install -y aapt
+            AAPT="$(command -v aapt)"
+          fi
+          test -x "$AAPT"
+          echo "path=$AAPT" >> "$GITHUB_OUTPUT"
+      - name: Download and validate every AudioRelay mirror
+        env:
+          RUN_LIVE_MIRROR_TESTS: '1'
+          AAPT: ${{ steps.aapt.outputs.path }}
+        run: python -m unittest tests.test_mirror_download_live -v
