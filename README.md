@@ -8,7 +8,7 @@ GitHub Actions automation for building Morphe-patched Android APKs.
 
 The repository currently builds:
 
-- Google Photos from APKMirror
+- Google Photos through multiple APK mirrors
 - Brave from GitHub releases
 - Brave ARM64 (`arm64-v8a`)
 - Brave ARM32 (`armeabi-v7a`)
@@ -19,7 +19,7 @@ The workflow is configuration-driven. Adding another application normally means 
 
 | Application | Package | Patch repository | Source | Architectures | Flavors |
 | --- | --- | --- | --- | --- | --- |
-| Google Photos | `com.google.android.apps.photos` | `Akash-Sriram/morphe-google-photos` | APKMirror | Universal | `mod`, `original` |
+| Google Photos | `com.google.android.apps.photos` | `Akash-Sriram/morphe-google-photos` | APKMirror → APKPure → Uptodown → Aptoide | Universal | `mod`, `original` |
 | Brave | `com.brave.browser` | `kveld9/kveld-morphe-patches` | GitHub | ARM64, ARM32 | Default |
 
 Brave assets:
@@ -42,14 +42,21 @@ flowchart TD
     E -- Yes --> F["Skip"]
     E -- No --> G["Download .mpp"]
     G --> H["Download exact base package"]
-    H --> I["Validate package"]
-    I --> J["Run Morphe CLI"]
+    H --> I["Try configured mirrors"]
+    I --> J["Validate package"]
+    J --> K["Run Morphe CLI"]
+    K --> L["Read manifest.json"]
+    L --> M["Align and sign APKs"]
+    M --> N["Upload artifact"]
+    N --> O["Publish"]
+    O --> P["Update monthly release"]
+    P --> Q["Remove stale assets for that app"]
     J --> K["Read manifest.json"]
     K --> L["Align and sign APKs"]
     L --> M["Upload artifact"]
     M --> N["Publish"]
     N --> O["Update monthly release"]
-    O --> P["Remove stale assets for that app"]
+    P --> Q["Remove stale assets for that app"]
 ```
 
 ### Configuration
@@ -82,9 +89,41 @@ Before downloading and patching, the workflow checks the current monthly release
 
 If the expected assets already exist, that matrix entry is skipped. A manual run with `rebuild=true` can bypass this check.
 
-### Download
+### Download sources
 
-The source determines which downloader is used.
+The downloader is selected from `source.type` in the application configuration.
+
+For `type: "mirrors"`, sources are tried in configuration order. The current Google Photos order is:
+
+```text
+APKMirror → APKPure → Uptodown → Aptoide
+```
+
+Each candidate is resolved for the requested exact version, downloaded to a temporary `.partial` file, validated, and only then moved into the final output path. A failed or invalid source is discarded and the next configured source is tried.
+
+### APKMirror
+
+`tools/apkmirror.py` uses `curl_cffi` normally and can fall back to Playwright when a browser-based Cloudflare challenge requires it.
+
+### APKPure
+
+The multi-source downloader resolves the requested version through APKPure's version/download pages and extracts the package download URL.
+
+### Uptodown
+
+The multi-source downloader generates candidate slugs, searches version pages for the requested version, and extracts the package download URL.
+
+### Aptoide
+
+The multi-source downloader uses the Aptoide API to locate the requested package/version and obtains its download URL.
+
+### GitHub
+
+`tools/github_source.py` resolves the requested release asset through the GitHub API.
+
+### Direct source
+
+A direct URL can be configured when a package is available from a known URL.
 
 #### APKMirror
 
@@ -212,12 +251,14 @@ There are two validation rules for manual runs:
 │   └── google-photos.json
 ├── tests/
 │   ├── test_common.py
+│   ├── test_mirror_download.py
 │   ├── test_monthly_release.py
 │   └── test_resolve_version.py
 ├── tools/
 │   ├── apkmirror.py
 │   ├── common.py
 │   ├── github_source.py
+│   ├── mirror_download.py
 │   ├── monthly_release.py
 │   ├── patch.py
 │   └── resolve_version.py
@@ -232,7 +273,8 @@ There are two validation rules for manual runs:
 | `.github/dependabot.yml` | Dependabot configuration |
 | `apps/*.json` | Application definitions |
 | `tools/resolve_version.py` | Patch-supported version selection |
-| `tools/apkmirror.py` | APKMirror downloads |
+| `tools/apkmirror.py` | APKMirror-specific downloader |
+| `tools/mirror_download.py` | Multi-source mirror fallback |
 | `tools/github_source.py` | GitHub asset downloads |
 | `tools/patch.py` | Morphe patching and manifest generation |
 | `tools/monthly_release.py` | Monthly release maintenance |
@@ -296,6 +338,27 @@ An application configuration defines:
   ]
 }
 ```
+
+### Multi-source mirror source
+
+Use `type: "mirrors"` when the same exact application version may be obtained from more than one source.
+
+```json
+{
+  "source": {
+    "type": "mirrors",
+    "file_type": "apk",
+    "mirrors": [
+      {"type": "apkmirror"},
+      {"type": "apkpure", "name": "google-photos"},
+      {"type": "uptodown", "name": "google-photos"},
+      {"type": "aptoide"}
+    ]
+  }
+}
+```
+
+The downloader receives `--exact-version` from the version resolver; mirror sources do not independently select the newest version.
 
 ### APKMirror source
 
@@ -455,6 +518,7 @@ The tests cover:
 - stable and experimental target handling
 - release-note section replacement
 - stale asset detection
+- multi-source Aptoide lookup and download handling
 
 The test workflow also runs on relevant pushes and pull requests.
 
@@ -514,6 +578,10 @@ Bad or unexpected downloads are rejected before patching.
 ### Deterministic inputs
 
 The patch version and application version are resolved explicitly before the build.
+
+### Source resilience
+
+A mirror failure does not necessarily stop the build. Configured fallback sources are tried in order, with exact-version and package validation applied to every candidate.
 
 ### Manifest-driven outputs
 
