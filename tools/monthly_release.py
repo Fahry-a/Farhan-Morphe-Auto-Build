@@ -101,33 +101,6 @@ def rebuild_release_body(body, builds, repo, tag):
     return header(tag) + "\n\n" + downloads + "\n"
 
 
-def rebuild_release_body(body, builds, repo, tag):
-    """Rebuild managed sections alphabetically while keeping cumulative builds."""
-    pattern = re.compile(
-        r"<!-- app:(?P<key>[^>]+) -->.*?<!-- /app:(?P=key) -->",
-        re.DOTALL,
-    )
-    sections = {
-        match.group("key"): match.group(0).strip()
-        for match in pattern.finditer(body)
-    }
-    for build in builds:
-        sections[section_key(build["app"], build["arch"])] = render_section(
-            build, repo, tag
-        )
-    sorted_keys = sorted(sections, key=str.casefold)
-    summary_builds = sorted(builds, key=lambda b: section_key(b["app"], b["arch"]).casefold())
-    summary = "\n".join(
-        build_summary_row(build, repo, tag) for build in summary_builds
-    )
-    downloads = "\n\n".join(sections[key] for key in sorted_keys)
-    return (
-        header(tag)
-        + summary
-        + "\n\n## Downloads\n\n"
-        + downloads
-        + "\n"
-    )
 
 
 def gh(*args, repo):
