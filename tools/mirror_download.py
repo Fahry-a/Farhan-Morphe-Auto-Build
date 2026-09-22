@@ -13,7 +13,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from common import resolve_arch_entry, validate_package
+try:\n    from common import resolve_arch_entry, validate_package\nexcept ModuleNotFoundError:\n    from tools.common import resolve_arch_entry, validate_package
 
 
 def http_get(url, headers=None, timeout=60):
