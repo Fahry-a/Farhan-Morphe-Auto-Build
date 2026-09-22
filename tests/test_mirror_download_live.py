@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import tempfile
+import traceback
 import unittest
 
 from tools.common import validate_package
@@ -50,9 +51,16 @@ class LiveMirrorDownloadTests(unittest.TestCase):
                             aapt_path=self.aapt,
                         )
                         self.assertGreater(entries, 0)
-                        self.assertGreater(os.path.getsize(output), 1_000_000)
+                        size = os.path.getsize(output)
+                        self.assertGreater(size, 1_000_000)
+                        print(
+                            f"OK mirror={kind} version={version} "
+                            f"file={output} size={size} bytes "
+                            f"({size / 1_000_000:.2f} MB) entries={entries}"
+                        )
                     except Exception as exc:
-                        failures.append(f"{kind}: {exc}")
+                        tb = traceback.format_exc(limit=8)
+                        failures.append(f"{kind}: {exc}\n{tb}")
 
         if failures:
             self.fail("Live mirror failures:\n" + "\n".join(failures))

@@ -43,7 +43,7 @@ concurrency:
 
 env:
   MORPHE_CLI_VERSION: '1.16.0'
-  MORPHE_CLI_SHA256: '85c222421f07bb67098d191b9870323199fea871ddab53fcd6de915ca70e5fe6'
+  MORPHE_CLI_SHA256: '82a0df2ff881d83d5ca8b4f9a6ce196bd4ac3b87ff147fe37845c296b436806c'
 
 jobs:
   setup:
@@ -54,6 +54,16 @@ jobs:
       matrix: ${{ steps.list.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show build context
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+          ONLY_APP: ${{ inputs.app }}
+          ONLY_ARCH: ${{ inputs.arch }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: |
+          echo "::notice title=Build context::event=$EVENT ref=$REF app=${ONLY_APP:-all} arch=${ONLY_ARCH:-all} rebuild=${REBUILD:-false}"
+          echo "Build context: event=$EVENT ref=$REF app=$ONLY_APP arch=$ONLY_ARCH rebuild=$REBUILD"
       - name: Validate manual inputs
         env:
           ONLY_APP: ${{ inputs.app }}
@@ -94,6 +104,7 @@ jobs:
           echo "Pairs: $MATRIX"
 
   build:
+    name: Build ${{ matrix.app }} / ${{ matrix.arch }}
     needs: setup
     if: needs.setup.outputs.matrix != '[]'
     strategy:
@@ -141,6 +152,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "::group::Resolve supported versions"
+          echo "Target: ${{ matrix.app }} / ${{ matrix.arch }}"
           EXTRA=""
           if [ "${{ inputs.allow_experimental }}" = "true" ]; then EXTRA="--allow-experimental"; fi
           python3 tools/resolve_version.py --config "${{ matrix.config }}" $EXTRA --json-out resolved.json
@@ -151,6 +164,8 @@ jobs:
           echo "mpp_url=$MPP_URL" >> $GITHUB_OUTPUT
           echo "mpp_version=$MPP_VER" >> $GITHUB_OUTPUT
           echo "apk_version=$APK_VER" >> $GITHUB_OUTPUT
+          echo "Resolved: APK $APK_VER | Morphe patch $MPP_VER"
+          echo "::endgroup::"
 
       - name: Check monthly release for existing assets
         id: check
@@ -185,8 +200,11 @@ jobs:
       - name: Download prebuilt .mpp
         if: steps.check.outputs.skip != 'true'
         run: |
+          echo "::group::Download Morphe patch"
           curl --fail --location --retry 3 --retry-all-errors -o patches.mpp "${{ steps.resolve.outputs.mpp_url }}"
-          ls -la patches.mpp
+          ls -lh patches.mpp
+          echo "::notice title=Morphe patch ready::v${{ steps.resolve.outputs.mpp_version }} downloaded."
+          echo "::endgroup::"
 
       - name: Download base package
         id: download
@@ -195,6 +213,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
         run: |
+          echo "::group::Download exact base package"
+          echo "Target: ${{ matrix.app }} / ${{ matrix.arch }} / v${{ steps.resolve.outputs.apk_version }}"
           TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source']['type'])")
           FILE_TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source'].get('file_type', 'apk'))")
           case "$FILE_TYPE" in
@@ -244,31 +264,47 @@ jobs:
           else
             echo "Unknown source.type: $TYPE"; exit 1
           fi
-          ls -la base.*
+          ls -lh base.*
+          echo "::notice title=Base package ready::$BASE_FILE"
+          echo "::endgroup::"
 
       - name: Validate base package
         if: steps.check.outputs.skip != 'true'
         run: |
-          BASE_FILE="${{ steps.download.outputs.base_file }}"
-          FILE_TYPE="${{ steps.download.outputs.file_type }}"
-          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
-          python3 -c "from tools.common import validate_package; print(f'Validated {BASE_FILE}: {validate_package(BASE_FILE, FILE_TYPE, expected_version="${{ steps.resolve.outputs.apk_version }}", aapt_path="{BUILD_TOOLS_DIR}/aapt")} ZIP entries')"
+          echo "::group::Validate base package"
+          BASE_FILE="${{ steps.download.outputs.base_file }}" \
+          FILE_TYPE="${{ steps.download.outputs.file_type }}" \
+          APK_VERSION="${{ steps.resolve.outputs.apk_version }}" \
+          python3 - <<'PY'
+          import os
+          from tools.common import validate_package
+          entries = validate_package(
+              os.environ["BASE_FILE"],
+              os.environ["FILE_TYPE"],
+              expected_version=os.environ["APK_VERSION"],
+          )
+          print(f'Validated {os.environ["BASE_FILE"]}: {entries} ZIP entries')
+          PY
 
       - name: Setup Morphe CLI
         if: steps.check.outputs.skip != 'true'
         env:
           MORPHE_CLI_VERSION: ${{ env.MORPHE_CLI_VERSION }}
         run: |
+          echo "::group::Setup Morphe CLI"
           CLI_URL="https://github.com/MorpheApp/morphe-desktop/releases/download/v$MORPHE_CLI_VERSION/morphe-desktop-$MORPHE_CLI_VERSION-all.jar"
           echo "CLI: $CLI_URL"
           curl --fail --location --retry 3 --retry-all-errors -o morphe-cli.jar "$CLI_URL"
           test -s morphe-cli.jar
           echo "$MORPHE_CLI_SHA256  morphe-cli.jar" | sha256sum --check --status
           echo "Morphe CLI checksum verified."
+          echo "::notice title=Morphe CLI ready::v$MORPHE_CLI_VERSION is ready."
+          echo "::endgroup::"
 
       - name: Patch all flavors
         if: steps.check.outputs.skip != 'true'
         run: |
+          echo "::group::Patch all flavors"
           python3 tools/patch.py --config "${{ matrix.config }}" \
             --arch "${{ matrix.arch }}" \
             --cli morphe-cli.jar --mpp patches.mpp --base "${{ steps.download.outputs.base_file }}" \
@@ -282,6 +318,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
+          echo "::group::Align, sign and verify APKs"
           if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "ERROR: KEYSTORE_BASE64 secret is not set"; exit 1
           fi
@@ -326,6 +363,8 @@ jobs:
           print(json.dumps(frag, indent=2))
           "
           rm -f release.keystore
+          echo "::notice title=Signing complete::All manifest outputs were aligned, signed, and verified."
+          echo "::endgroup::"
 
       - name: Upload build artifacts
         if: steps.check.outputs.skip != 'true'
@@ -337,6 +376,7 @@ jobs:
             fragment-${{ matrix.app }}-${{ matrix.arch }}.json
 
   publish:
+    name: Publish monthly release
     needs: build
     # One failing app must not block the others: with no fragments this job
     # exits cleanly without touching the release.
