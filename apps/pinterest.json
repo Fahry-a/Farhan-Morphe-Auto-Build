@@ -9,11 +9,12 @@
     "file_type": "apk",
     "mirrors": [
       {
-        "type": "apkpure",
-        "name": "pinterest"
+        "type": "uptodown",
+        "name": "pinterest",
+        "file_type": "apk"
       },
       {
-        "type": "uptodown",
+        "type": "apkpure",
         "name": "pinterest"
       },
       {
