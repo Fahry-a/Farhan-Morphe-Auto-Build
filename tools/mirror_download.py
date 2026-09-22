@@ -265,10 +265,12 @@ def _uptodown_html_file_id(name, app_id, version, file_type="apk"):
                     f"Uptodown version {version} has no file ID"
                 )
             return file_id
-    raise RuntimeError(f"Uptodown version {version} not found")
+    raise RuntimeError(
+        f"Uptodown version {version} with file_type {file_type} not found"
+    )
 
 
-def uptodown_link(package, name, version):
+def uptodown_link(package, name, version, file_type="apk"):
     token = _uptodown_auth_token()
     try:
         data = _uptodown_api_get_json(
