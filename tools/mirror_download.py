@@ -80,9 +80,15 @@ def _apkpure_headers():
     }
 
 
-def apkpure_link(package, name, version):
+_APKPURE_ASSET_TYPES = ("APK", "XAPK")
+
+
+def apkpure_link(package, name, version, prefer="APK"):
     # APKPure's mobile API exposes historical versions and their CDN asset
     # URLs without requiring the web page's Cloudflare/anti-bot flow.
+    # Some apps (e.g. com.rawcam.app) are only published as XAPK bundles,
+    # so accept both APK and XAPK assets, preferring the type that matches
+    # the app config's file_type.
     del name
     url = (
         "https://tapi.pureapk.com/v3/get_app_his_version"
@@ -92,19 +98,23 @@ def apkpure_link(package, name, version):
         data = json.loads(r.read())
 
     entries = data.get("version_list", [])
-    target = next(
-        (
-            item for item in entries
-            if item.get("version_name") == version
-            and item.get("asset", {}).get("url")
-            and str(item.get("asset", {}).get("type", "")).upper() == "APK"
-        ),
-        None,
-    )
-    if not target:
+    candidates = [
+        item for item in entries
+        if item.get("version_name") == version
+        and item.get("asset", {}).get("url")
+        and str(item.get("asset", {}).get("type", "")).upper() in _APKPURE_ASSET_TYPES
+    ]
+    if not candidates:
         raise RuntimeError(f"APKPure version {version} not found")
 
-    return target["asset"]["url"]
+    preferred = (prefer or "APK").upper()
+    candidates.sort(
+        key=lambda item: (
+            0 if str(item.get("asset", {}).get("type", "")).upper() == preferred
+            else 1
+        )
+    )
+    return candidates[0]["asset"]["url"]
 
 
 def _uptodown_download_url(page_html):
@@ -461,7 +471,9 @@ def download_from_mirror(kind, cfg, arch, version, output):
     if kind == "apkmirror":
         return download_apkmirror(cfg, arch, version, output)
     if kind == "apkpure":
-        download_url(apkpure_link(package, name, version), output)
+        prefer = {"xapk": "XAPK"}.get(
+            cfg["source"].get("file_type", "apk"), "APK")
+        download_url(apkpure_link(package, name, version, prefer=prefer), output)
     elif kind == "uptodown":
         # Prefer Uptodown's eAPI: it returns an exact fileID and an official
         # CDN URL without depending on the web page's download token markup.

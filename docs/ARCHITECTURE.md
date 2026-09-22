@@ -213,6 +213,8 @@ APKPure is handled by tools/mirror_download.py.
 
 The downloader resolves the requested application version and extracts its package URL. It must not silently replace the requested version with latest.
 
+APKPure serves both monolithic APK and XAPK bundle assets. Both are accepted; the asset type matching the app config's file_type is preferred, so XAPK-only releases (e.g. Native Camera) download and validate as bundles.
+
 ### Uptodown
 
 Uptodown is handled by tools/mirror_download.py.

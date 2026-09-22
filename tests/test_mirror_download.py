@@ -166,8 +166,104 @@ class MirrorDownloaderTests(unittest.TestCase):
             download_from_mirror("apkpure", cfg, "universal", "1.2.3", "out.apk"),
             "1.2.3",
         )
-        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3")
+        mock_link.assert_called_once_with(
+            "com.example.test", "example", "1.2.3", prefer="APK")
         mock_download.assert_called_once_with("https://example.test/a.apk", "out.apk")
+
+    @patch("tools.mirror_download.download_url")
+    @patch("tools.mirror_download.apkpure_link", return_value="https://example.test/a.xapk")
+    def test_download_from_mirror_apkpure_prefers_xapk_for_bundle_configs(
+        self, mock_link, mock_download
+    ):
+        cfg = {
+            "id": "test",
+            "package": "com.example.test",
+            "source": {
+                "type": "mirrors",
+                "file_type": "xapk",
+                "mirrors": [{"type": "apkpure", "name": "example"}],
+            },
+        }
+        self.assertEqual(
+            download_from_mirror("apkpure", cfg, "universal", "1.2.3", "out.xapk"),
+            "1.2.3",
+        )
+        mock_link.assert_called_once_with(
+            "com.example.test", "example", "1.2.3", prefer="XAPK")
+        mock_download.assert_called_once_with("https://example.test/a.xapk", "out.xapk")
+
+    @patch("tools.mirror_download.http_get")
+    def test_apkpure_falls_back_to_xapk_when_no_apk_asset(self, mock_get):
+        class Response:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return json.dumps(self.payload).encode()
+
+        mock_get.return_value = Response({
+            "version_list": [
+                {
+                    "version_name": "1.4.1",
+                    "asset": {
+                        "type": "XAPK",
+                        "url": "https://cdn.example.test/native-camera-1.4.1.xapk",
+                    },
+                },
+            ]
+        })
+        self.assertEqual(
+            apkpure_link("com.rawcam.app", "native-camera", "1.4.1"),
+            "https://cdn.example.test/native-camera-1.4.1.xapk",
+        )
+
+    @patch("tools.mirror_download.http_get")
+    def test_apkpure_prefers_asset_type_matching_config(self, mock_get):
+        class Response:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return json.dumps(self.payload).encode()
+
+        mock_get.return_value = Response({
+            "version_list": [
+                {
+                    "version_name": "1.4.1",
+                    "asset": {
+                        "type": "APK",
+                        "url": "https://cdn.example.test/app-1.4.1.apk",
+                    },
+                },
+                {
+                    "version_name": "1.4.1",
+                    "asset": {
+                        "type": "XAPK",
+                        "url": "https://cdn.example.test/app-1.4.1.xapk",
+                    },
+                },
+            ]
+        })
+        self.assertEqual(
+            apkpure_link("com.example.test", "example", "1.4.1"),
+            "https://cdn.example.test/app-1.4.1.apk",
+        )
+        self.assertEqual(
+            apkpure_link("com.example.test", "example", "1.4.1", prefer="XAPK"),
+            "https://cdn.example.test/app-1.4.1.xapk",
+        )
 
     @patch("tools.mirror_download._download_uptodown_cdn")
     @patch("tools.mirror_download.uptodown_link", return_value="https://example.test/a.apk")

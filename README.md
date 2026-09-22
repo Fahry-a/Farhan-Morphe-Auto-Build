@@ -12,6 +12,7 @@ Configuration-driven GitHub Actions automation for building Morphe-patched Andro
 | Google Photos | com.google.android.apps.photos | Akash-Sriram/morphe-google-photos | APKMirror → APKPure → Uptodown → Aptoide | Universal | mod, original |
 | Brave Browser | com.brave.browser | kveld9/kveld-morphe-patches | GitHub | ARM64, ARM32 | Default |
 | AudioRelay | com.azefsw.audioconnect | kiraio-moe/Lain-Patches | APKPure → Uptodown → Aptoide | Universal | Default |
+| Native Camera | com.rawcam.app | WaggBR/Wagg13Patch_Morphe | APKPure → Uptodown → Aptoide | Universal | Default |
 
 Brave assets:
 

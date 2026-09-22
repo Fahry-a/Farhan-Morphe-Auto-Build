@@ -6,11 +6,18 @@
   "allow_experimental": false,
   "source": {
     "type": "mirrors",
-    "file_type": "zapk",
+    "file_type": "xapk",
     "mirrors": [
       {
         "type": "apkpure",
         "name": "native-camera"
+      },
+      {
+        "type": "uptodown",
+        "name": "native-camera"
+      },
+      {
+        "type": "aptoide"
       }
     ],
     "archs": [
