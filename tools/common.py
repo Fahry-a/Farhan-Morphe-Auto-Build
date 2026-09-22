@@ -1,5 +1,11 @@
 """Shared helpers for the downloader tools."""
 
+import os
+import shutil
+import subprocess
+import tempfile
+import zipfile
+
 ARCH_REQUIRED_ERROR = "--arch is required for a multi-arch source"
 
 APK_MIN_SIZE = 1_000_000
@@ -52,11 +58,6 @@ def validate_package(path, file_type, expected_version=None, aapt_path=None):
     otherwise dies later inside the patcher with a cryptic NPE.
     Returns the number of zip entries.
     """
-    import os
-    import shutil
-    import subprocess
-    import tempfile
-    import zipfile
     size = os.path.getsize(path)
     if size < APK_MIN_SIZE:
         raise RuntimeError(f"{path} is too small ({size:,} bytes), download incomplete?")
