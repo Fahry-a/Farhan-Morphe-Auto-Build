@@ -34,8 +34,34 @@ def resolve_arch_entry(src, arch):
     raise RuntimeError(ARCH_REQUIRED_ERROR)
 
 
+def _locate_aapt():
+    """Find aapt via the AAPT env var, PATH, or the Android SDK dir.
+
+    GitHub's ubuntu images ship the Android SDK (ANDROID_HOME set) but
+    build-tools is not on PATH, so shutil.which alone fails there.
+    """
+    import glob
+    aapt = os.environ.get("AAPT") or shutil.which("aapt")
+    if aapt and os.path.isfile(aapt) and os.access(aapt, os.X_OK):
+        return aapt
+    android_home = os.environ.get("ANDROID_HOME")
+    if android_home:
+        candidates = [
+            p for p in glob.glob(
+                os.path.join(android_home, "build-tools", "*", "aapt")
+            )
+            if os.path.isfile(p) and os.access(p, os.X_OK)
+        ]
+        if candidates:
+            def version_key(p):
+                parts = os.path.basename(os.path.dirname(p)).split(".")
+                return tuple(int(x) if x.isdigit() else 0 for x in parts)
+            return max(candidates, key=version_key)
+    return None
+
+
 def _apk_version(path, aapt_path=None):
-    aapt = aapt_path or shutil.which("aapt")
+    aapt = aapt_path or _locate_aapt()
     if not aapt:
         raise RuntimeError("aapt is required for exact APK version validation")
     proc = subprocess.run(

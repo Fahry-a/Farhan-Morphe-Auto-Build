@@ -4,7 +4,9 @@ import tempfile
 import unittest
 import zipfile
 
-from tools.common import resolve_arch_entry, validate_package
+from unittest.mock import patch
+
+from tools.common import _locate_aapt, resolve_arch_entry, validate_package
 
 
 class CommonTests(unittest.TestCase):
@@ -68,6 +70,39 @@ class CommonTests(unittest.TestCase):
                 zf.writestr("base.apk", b"x" * 1_000_000)
                 zf.writestr("split_config.arm64_v8a.apk", b"x")
             self.assertGreater(validate_package(path, "apkm"), 0)
+
+    def _fake_sdk(self, td):
+        for ver in ("34.0.0", "37.0.0"):
+            d = os.path.join(td, "build-tools", ver)
+            os.makedirs(d)
+            path = os.path.join(d, "aapt")
+            with open(path, "w") as fh:
+                fh.write("#!/bin/sh\n")
+                fh.write("echo \"versionName='1.2.3'\"\n")
+            os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
+        return td
+
+    def test_locate_aapt_prefers_highest_build_tools(self):
+        with tempfile.TemporaryDirectory() as td:
+            sdk = self._fake_sdk(td)
+            with patch.dict(os.environ, {"ANDROID_HOME": sdk}), \
+                 patch("tools.common.shutil.which", return_value=None):
+                os.environ.pop("AAPT", None)
+                found = _locate_aapt()
+            self.assertTrue(found.endswith(os.path.join("37.0.0", "aapt")), found)
+
+    def test_validate_exact_version_finds_aapt_via_env(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "base.apk")
+            with zipfile.ZipFile(path, "w") as zf:
+                zf.writestr("AndroidManifest.xml", b"x" * 100)
+                zf.writestr("classes.dex", b"x" * 1_000_000)
+            aapt = self._fake_aapt(td, "1.2.3")
+            with patch.dict(os.environ, {"AAPT": aapt}), \
+                 patch("tools.common.shutil.which", return_value=None):
+                self.assertGreater(
+                    validate_package(path, "apk", expected_version="1.2.3"), 0
+                )
 
 
 if __name__ == "__main__":
