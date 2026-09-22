@@ -475,9 +475,18 @@ def download_from_mirror(kind, cfg, arch, version, output):
             cfg["source"].get("file_type", "apk"), "APK")
         download_url(apkpure_link(package, name, version, prefer=prefer), output)
     elif kind == "uptodown":
-        # Prefer Uptodown's eAPI: it returns an exact fileID and an official
-        # CDN URL without depending on the web page's download token markup.
-        _download_uptodown_cdn(uptodown_link(package, name, version), output)
+        # Prefer Uptodown's eAPI. GitHub-hosted runner IPs can receive a
+        # temporary/permanent 410 from the auth endpoint, so fall back to
+        # the public exact-version page flow when the eAPI is unavailable.
+        try:
+            _download_uptodown_cdn(uptodown_link(package, name, version), output)
+        except urllib.error.HTTPError as exc:
+            if getattr(exc, "code", None) != 410:
+                raise
+            _download_uptodown_cdn(
+                _uptodown_scrape_link(name, version),
+                output,
+            )
     elif kind == "aptoide":
         download_url(aptoide_link(package, version, arch), output)
     else:

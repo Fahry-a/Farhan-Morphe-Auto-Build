@@ -132,7 +132,38 @@ def main():
     subprocess.run(
         ["gh", "release", "edit", args.tag, "--notes-file", "release-body.md",
          "--repo", args.repo], check=True)
-    print(f"Release {args.tag} updated with {len(builds)} app(s).")
+
+    # Verify the remote state after every mutation. Do not report success unless
+    # the expected assets and release-note sections are actually present.
+    verified = get_release(args.repo, args.tag)
+    if verified is None:
+        raise RuntimeError(f"Release {args.tag} disappeared during publication")
+    verified_assets = {asset["name"] for asset in verified.get("assets", [])}
+    verified_body = verified.get("body") or ""
+    missing_assets = sorted(
+        file_name
+        for build in builds
+        for file_name in build["files"]
+        if file_name not in verified_assets
+    )
+    if missing_assets:
+        raise RuntimeError(
+            "Release verification failed; missing uploaded assets: "
+            + ", ".join(missing_assets)
+        )
+    missing_sections = [
+        section_key(build["app"], build["arch"])
+        for build in builds
+        if f"<!-- app:{section_key(build['app'], build['arch'])} -->" not in verified_body
+        or f"<!-- /app:{section_key(build['app'], build['arch'])} -->" not in verified_body
+    ]
+    if missing_sections:
+        raise RuntimeError(
+            "Release verification failed; missing release-note sections: "
+            + ", ".join(missing_sections)
+        )
+
+    print(f"Release {args.tag} updated and verified with {len(builds)} app(s).")
 
 
 if __name__ == "__main__":
