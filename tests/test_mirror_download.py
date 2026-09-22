@@ -67,7 +67,7 @@ class MirrorDownloaderTests(unittest.TestCase):
             "https://cdn.example.test/audiorelay-0.26.1.apk",
         )
         mock_auth.assert_called()
-        mock_file_id.assert_called_once_with("audiorelay", 12345, "0.26.1")
+        mock_file_id.assert_called_once_with("audiorelay", 12345, "0.26.1", "apk")
         self.assertIn("/apps/byPackagename/", mock_api.call_args_list[0].args[0])
         self.assertIn(
             "/apps/12345/file/67890/downloadUrl",
@@ -325,7 +325,7 @@ class MirrorDownloaderTests(unittest.TestCase):
             download_from_mirror("uptodown", cfg, "universal", "1.2.3", "out.apk"),
             "1.2.3",
         )
-        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3")
+        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3", "apk")
         mock_scrape.assert_called_once_with("example", "1.2.3")
         mock_download.assert_called_once_with("https://example.test/fallback.apk", "out.apk")
 
