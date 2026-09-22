@@ -11,7 +11,10 @@ import os
 import sys
 import urllib.request
 
-from common import resolve_arch_entry, validate_package
+try:
+    from common import resolve_arch_entry, validate_package
+except ModuleNotFoundError:
+    from tools.common import resolve_arch_entry, validate_package
 
 
 def api_get(url, token=None):
@@ -60,6 +63,24 @@ def download_url(url, output_path, token=None):
                 fh.write(buf)
 
 
+def download_and_validate(url, output_path, file_type, expected_version, token=None):
+    """Download atomically and validate before exposing the final output."""
+    partial_path = output_path + ".partial"
+    try:
+        download_url(url, partial_path, token)
+        entries = validate_package(
+            partial_path, file_type, expected_version=expected_version
+        )
+        os.replace(partial_path, output_path)
+        return entries
+    except Exception:
+        try:
+            os.unlink(partial_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download an APK from GitHub Releases")
     parser.add_argument("--config", help="Path to apps/<id>.json (github type)")
@@ -98,31 +119,31 @@ def main():
         print(f"Failed to resolve asset: {e}", file=sys.stderr)
         sys.exit(1)
     print(f"[github] Downloading: {url} ({size:,} bytes listed)")
-    download_url(url, args.output, token)
-
-    if os.path.exists(args.output) and os.path.getsize(args.output) > 1_000_000:
-        if args.config:
-            file_type = src.get("file_type", "apk")
-        elif asset.lower().endswith(".xapk"):
-            file_type = "xapk"
-        elif asset.lower().endswith(".apkm"):
-            file_type = "apkm"
-        else:
-            file_type = "apk"
-        try:
-            entries = validate_package(args.output, file_type, expected_version=args.apk_version or tag.lstrip('v'))
-        except RuntimeError as e:
-            print(f"Validation failed: {e}", file=sys.stderr)
-            sys.exit(1)
-        print(f"OK {args.output} ({os.path.getsize(args.output):,} bytes, "
-              f"{entries} zip entries, type={file_type})")
-        if "GITHUB_OUTPUT" in os.environ:
-            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-                fh.write(f"apk_version={tag.lstrip('v')}\n")
-                fh.write(f"base_file={args.output}\n")
+    if args.config:
+        file_type = src.get("file_type", "apk")
+    elif asset.lower().endswith(".xapk"):
+        file_type = "xapk"
+    elif asset.lower().endswith(".apkm"):
+        file_type = "apkm"
     else:
-        print("Result file is missing or too small!", file=sys.stderr)
+        file_type = "apk"
+    expected_version = args.apk_version or tag.lstrip('v')
+    try:
+        entries = download_and_validate(
+            url, args.output, file_type, expected_version, token
+        )
+    except RuntimeError as e:
+        print(f"Validation failed: {e}", file=sys.stderr)
         sys.exit(1)
+    except Exception as e:
+        print(f"Download failed: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(f"OK {args.output} ({os.path.getsize(args.output):,} bytes, "
+          f"{entries} zip entries, type={file_type})")
+    if "GITHUB_OUTPUT" in os.environ:
+        with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+            fh.write(f"apk_version={expected_version}\n")
+            fh.write(f"base_file={args.output}\n")
 
 
 if __name__ == "__main__":
