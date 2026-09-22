@@ -11,7 +11,10 @@ import os
 import sys
 import urllib.request
 
-from common import resolve_arch_entry, validate_package
+try:
+    from common import resolve_arch_entry, validate_package
+except ModuleNotFoundError:
+    from tools.common import resolve_arch_entry, validate_package
 
 
 def api_get(url, token=None):
