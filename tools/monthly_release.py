@@ -78,20 +78,27 @@ def header(tag):
         f"# Monthly Builds · {tag}\n\n"
         "> Updated in place by the daily workflow. "
         "Each section shows the current build for an app and architecture.\n\n"
-        "## Current Builds\n\n"
-        "| App | Architecture | Version | Morphe | Built |\n"
-        "| --- | --- | --- | --- | --- |\n"
+        "## Downloads\n"
     )
 
 
-def build_summary_row(build, repo, tag):
-    display = build.get("display") or build["app"]
-    version = build["apk_version"]
-    return (
-        f"| **{display}** | `{build['arch']}` | "
-        f"[`v{version}`]({download_url(repo, tag, build['files'][0])}) | "
-        f"`{build['mpp_version']}` | `{build['build_date']}` |"
+def rebuild_release_body(body, builds, repo, tag):
+    """Rebuild managed sections alphabetically while keeping cumulative builds."""
+    pattern = re.compile(
+        r"<!-- app:(?P<key>[^>]+) -->.*?<!-- /app:(?P=key) -->",
+        re.DOTALL,
     )
+    sections = {
+        match.group("key"): match.group(0).strip()
+        for match in pattern.finditer(body)
+    }
+    for build in builds:
+        sections[section_key(build["app"], build["arch"])] = render_section(
+            build, repo, tag
+        )
+    sorted_keys = sorted(sections, key=str.casefold)
+    downloads = "\n\n".join(sections[key] for key in sorted_keys)
+    return header(tag) + "\n\n" + downloads + "\n"
 
 
 def rebuild_release_body(body, builds, repo, tag):
@@ -183,7 +190,7 @@ def main():
         existing = [n for n in existing if n not in stale_assets(
             existing, build["app"], build["arch"], build["files"])]
         existing += [f for f in build["files"] if f not in existing]
-        body = upsert_section(body, key, render_section(build))
+        body = upsert_section(body, key, render_section(build, args.repo, args.tag))
 
     body = rebuild_release_body(body, builds, args.repo, args.tag)
 
