@@ -62,7 +62,7 @@ def main():
     if args.exact_version:
         url = url.replace("{version}", args.exact_version)
     url = url.replace("{package}", package).replace("{arch}", args.arch or "")
-    if "{version}" in url or "{package}" in url:
+    if "{version}" in url or "{package}" in url or "{arch}" in url:
         parser.error("URL still has unfilled placeholders.")
 
     if file_type == "apkm":
