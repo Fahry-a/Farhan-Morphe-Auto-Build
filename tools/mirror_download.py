@@ -172,7 +172,7 @@ def main():
             print(f"== Trying {kind} for {cfg['package']} {args.exact_version} ==")
             version = download_from_mirror(kind, cfg, args.arch,
                                            args.exact_version, tmp)
-            validate_package(tmp, file_type)
+            validate_package(tmp, file_type, expected_version=args.exact_version)
             os.replace(tmp, args.output)
             print(f"OK {args.output}: source={kind}, version={version}")
             if "GITHUB_OUTPUT" in os.environ:

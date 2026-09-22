@@ -61,8 +61,8 @@ def main():
         parser.error("--config or --url is required")
     if args.exact_version:
         url = url.replace("{version}", args.exact_version)
-    url = url.replace("{package}", package)
-    if "{version}" in url or "{package}" in url:
+    url = url.replace("{package}", package).replace("{arch}", args.arch or "")
+    if "{version}" in url or "{package}" in url or "{arch}" in url:
         parser.error("URL still has unfilled placeholders.")
 
     if file_type == "apkm":
@@ -78,6 +78,7 @@ def main():
     if not output_path.endswith((".apk", ".xapk", ".apkm")):
         output_path += want_ext
 
+    partial_path = output_path + ".partial"
     print(f"[direct] Downloading: {url}")
     try:
         if HAS_CURL_CFFI:
@@ -86,7 +87,7 @@ def main():
                          timeout=300, stream=True, allow_redirects=True)
             resp.raise_for_status()
             total = 0
-            with open(output_path, "wb") as fh:
+            with open(partial_path, "wb") as fh:
                 for chunk in resp.iter_content(chunk_size=65536):
                     if chunk:
                         fh.write(chunk)
@@ -95,7 +96,7 @@ def main():
             req = urllib.request.Request(url, headers=HEADERS)
             total = 0
             with urllib.request.urlopen(req, timeout=300) as resp, \
-                    open(output_path, "wb") as fh:
+                    open(partial_path, "wb") as fh:
                 while True:
                     buf = resp.read(65536)
                     if not buf:
@@ -103,16 +104,25 @@ def main():
                     fh.write(buf)
                     total += len(buf)
     except Exception as e:
+        try:
+            os.unlink(partial_path)
+        except FileNotFoundError:
+            pass
         print(f"Failed: {e}")
         sys.exit(1)
 
     check_type = ("xapk" if output_path.endswith(".xapk")
                   else "apkm" if output_path.endswith(".apkm") else "apk")
     try:
-        entries = validate_package(output_path, check_type)
+        entries = validate_package(partial_path, check_type, expected_version=args.exact_version)
     except RuntimeError as e:
+        try:
+            os.unlink(partial_path)
+        except FileNotFoundError:
+            pass
         print(f"Validation failed: {e}")
         sys.exit(1)
+    os.replace(partial_path, output_path)
     print(f"OK {output_path} ({total:,} bytes, {entries} zip entries, type={check_type})")
     if "GITHUB_OUTPUT" in os.environ and args.exact_version:
         with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
