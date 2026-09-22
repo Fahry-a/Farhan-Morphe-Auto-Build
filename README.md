@@ -4,77 +4,57 @@
 [![Tests](https://github.com/Fahry-a/Farhan-Morphe-Auto-Build/actions/workflows/tests.yml/badge.svg)](https://github.com/Fahry-a/Farhan-Morphe-Auto-Build/actions/workflows/tests.yml)
 [![License](https://img.shields.io/github/license/Fahry-a/Farhan-Morphe-Auto-Build)](https://github.com/Fahry-a/Farhan-Morphe-Auto-Build)
 
-**Morphe Auto Build** is a GitHub Actions pipeline for automatically downloading, patching, signing, and publishing Morphe-modified Android APKs.
+GitHub Actions automation for building Morphe-patched Android APKs.
 
-> **Describe an app in `apps/<id>.json`, and let the pipeline handle the rest.**
+The repository currently builds:
 
-It currently builds **Google Photos** and **Brave**, including Brave **ARM64** and **ARM32 / armeabi-v7a** packages.
+- Google Photos from APKMirror
+- Brave from GitHub releases
+- Brave ARM64 (`arm64-v8a`)
+- Brave ARM32 (`armeabi-v7a`)
 
----
+The workflow is configuration-driven. Adding another application normally means adding `apps/<id>.json`, not copying the workflow.
 
-## ✨ Features
+## Supported applications
 
-- 🤖 Daily automated builds at **09:00 WIB**.
-- 🧩 **Config-driven apps** — add an app without duplicating the workflow.
-- 🏗️ Multi-architecture matrix builds.
-- 📦 APK, APKM, and XAPK source support.
-- 🔎 Patch-aware version resolution instead of blindly using the newest APK.
-- 🌐 APKMirror, GitHub Releases, and direct mirror download backends.
-- 🛡️ Download validation before patching.
-- 🧾 Manifest-driven signing and publishing.
-- 🔐 APK signing with a GitHub Actions secret keystore.
-- 📅 Monthly GitHub Releases with stale same-app assets pruned.
-- ♻️ Idempotent builds — already-published builds are skipped.
-- 🧪 Unit tests for important Python components.
-- 🔒 GitHub Actions pinned to commit SHAs.
-- 📦 Python dependencies pinned and maintained with Dependabot.
-- ⚡ Playwright/Chromium cache for faster APKMirror fallback runs.
-
----
-
-## 📱 Supported apps
-
-| App | Package | Patch source | Base source | Architectures | Flavors |
+| Application | Package | Patch repository | Source | Architectures | Flavors |
 | --- | --- | --- | --- | --- | --- |
-| **Google Photos** | `com.google.android.apps.photos` | `Akash-Sriram/morphe-google-photos` | APKMirror | Universal | `mod`, `original` |
-| **Brave** | `com.brave.browser` | `kveld9/kveld-morphe-patches` | GitHub | ARM64, ARM32 | Default |
+| Google Photos | `com.google.android.apps.photos` | `Akash-Sriram/morphe-google-photos` | APKMirror | Universal | `mod`, `original` |
+| Brave | `com.brave.browser` | `kveld9/kveld-morphe-patches` | GitHub | ARM64, ARM32 | Default |
 
-### Brave architectures
+Brave assets:
 
-| Architecture | Asset |
+| Architecture | Source asset |
 | --- | --- |
-| ARM64 / `arm64-v8a` | `BraveMonoarm64.apk` |
-| ARM32 / `armeabi-v7a` | `BraveMonoarm.apk` |
+| `arm64-v8a` | `BraveMonoarm64.apk` |
+| `armeabi-v7a` | `BraveMonoarm.apk` |
 
-> The selected APK version follows the version supported by the Morphe patch. The pipeline does **not** blindly build the newest upstream APK.
+The build version is selected from the versions supported by the Morphe patch. It does not simply use the newest APK available from the source.
 
----
-
-## 🔄 How the pipeline works
+## Pipeline
 
 ```mermaid
 flowchart TD
-    A["Scheduled / Manual Run"] --> B["Load apps/*.json"]
-    B --> C["Create app × architecture matrix"]
+    A["Scheduled or manual run"] --> B["Read apps/*.json"]
+    B --> C["Build app × architecture matrix"]
     C --> D["Resolve patch-supported version"]
-    D --> E{"Already published?"}
+    D --> E{"Already in monthly release?"}
     E -- Yes --> F["Skip"]
-    E -- No --> G["Download Morphe .mpp"]
+    E -- No --> G["Download .mpp"]
     G --> H["Download exact base package"]
     H --> I["Validate package"]
     I --> J["Run Morphe CLI"]
     J --> K["Read manifest.json"]
-    K --> L["Align + sign APKs"]
-    L --> M["Upload build artifact"]
-    M --> N["Publish job"]
-    N --> O["Merge artifacts"]
-    O --> P["Update monthly release"]
-    P --> Q["Remove stale same-app assets"]
+    K --> L["Align and sign APKs"]
+    L --> M["Upload artifact"]
+    M --> N["Publish"]
+    N --> O["Update monthly release"]
+    O --> P["Remove stale assets for that app"]
 ```
 
-### 1. Configuration
+### Configuration
 
-Every enabled application lives under `apps/`:
+Each application is described by a file under `apps/`.
 
 ```text
 apps/
@@ -82,100 +62,93 @@ apps/
 └── google-photos.json
 ```
 
-The workflow reads these files and turns their architecture definitions into a build matrix.
+The workflow reads the configured architectures and expands them into a GitHub Actions matrix.
 
-### 2. Version resolution
+### Version resolution
 
-`tools/resolve_version.py`:
+`tools/resolve_version.py` determines which application version can be built with the available patch:
 
-1. Reads the version of the prebuilt Morphe `.mpp`.
-2. Loads the matching `patches-list.json`.
-3. Filters targets by Android package name.
-4. Excludes experimental targets unless `allow_experimental: true`.
-5. Selects the highest supported stable target.
+1. Read the version of the prebuilt Morphe `.mpp`.
+2. Load the matching `patches-list.json`.
+3. Filter targets by Android package name.
+4. Exclude experimental targets unless enabled.
+5. Select the highest supported stable target.
 
-This keeps the base APK and patch definition aligned.
+This avoids pairing a patch with an unsupported application version.
 
-### 3. Existing-build check
+### Existing release check
 
-Before expensive downloads and patching, the current monthly release is checked.
+Before downloading and patching, the workflow checks the current monthly release.
 
-If all expected assets already exist, that matrix entry is skipped.
+If the expected assets already exist, that matrix entry is skipped. A manual run with `rebuild=true` can bypass this check.
 
-Use `rebuild=true` for a manual rebuild.
+### Download
 
-### 4. Download
+The source determines which downloader is used.
 
-The pipeline downloads both the patch bundle and the exact base package.
+#### APKMirror
 
-**APKMirror**
+`tools/apkmirror.py` uses `curl_cffi` as the normal path. If the site requires a browser-based Cloudflare challenge, it falls back to Playwright and headless Chromium.
 
-`tools/apkmirror.py` uses:
+APKMirror bundles are saved with their actual `.apkm` extension and validated before patching.
 
-- `curl_cffi` as the fast path.
-- Chrome impersonation for normal requests.
-- Playwright + headless Chromium when a Cloudflare JavaScript challenge requires a browser.
+#### GitHub
 
-**GitHub**
+`tools/github_source.py` resolves the requested release asset through the GitHub API and downloads the selected file.
 
-`tools/github_source.py` resolves the actual release asset URL through the GitHub API.
+#### Direct source
 
-**Direct**
+A direct URL can be configured when a required package is available from another mirror.
 
-A direct mirror can be configured when the normal store/source is unavailable.
+### Validation
 
-### 5. Validation
-
-Every download is checked before patching.
+Downloads are validated before they reach the patcher.
 
 - APKs must be readable by `aapt`.
 - The detected version must match the requested version.
 - APK bundles must contain APK entries.
-- Invalid or malformed downloads fail early.
+- Invalid or unexpected files stop the build before patching.
 
-The goal is to turn a bad download into a clear validation error instead of a confusing patcher error.
-
-### 6. Patching
+### Patching
 
 `tools/patch.py` invokes the Morphe Desktop CLI.
 
-The resulting files are recorded in `manifest.json`.
+The patcher output is recorded in `manifest.json`. Later stages consume that manifest instead of reconstructing output filenames from configuration.
 
-The manifest is then used by signing/publishing so the pipeline works from **actual generated files**, rather than guessing filenames.
+### Signing
 
-### 7. Signing
-
-Generated APKs go through:
+Generated APKs are processed with:
 
 1. `zipalign`
-2. required ZIP/repack handling
+2. ZIP/repack handling where required
 3. `apksigner`
 
-The signing key comes from GitHub Actions secrets and is never committed to the repository.
+The signing keystore is supplied through GitHub Actions secrets and is not stored in the repository.
 
-### 8. Publishing
+### Publishing
 
-The `publish` job collects the successful matrix artifacts and updates one monthly release:
+The `publish` job collects the successful build artifacts and updates one GitHub Release per month.
+
+Release tags use:
+
+```text
+YYYY-MM
+```
+
+For example:
 
 ```text
 2026-09
 2026-10
 2026-11
-...
 ```
 
-A release contains the latest successful build for each configured app/architecture.
+Each monthly release keeps the latest successful build for each configured app and architecture. When an app is rebuilt, older assets belonging to that app are removed while other apps in the release are preserved.
 
-When an app receives a newer build, stale assets for that same app are removed while other apps' release sections are preserved.
-
----
-
-## 📦 Release layout
-
-Example:
+## Release example
 
 ```text
-Release: 2026-09
+2026-09
 
 Google Photos
 ├── google-photos-universal-v7.92.0.977185651-mod.apk
@@ -186,71 +159,15 @@ Brave
 └── brave-arm32-v1.95.104.apk
 ```
 
-Release tags use the month:
+The exact output names are taken from the build manifest and application configuration.
 
-```text
-YYYY-MM
-```
+## Scheduled builds
 
-Old versions of the same app are pruned from that monthly release instead of accumulating indefinitely.
-
----
-
-## 🗂️ Repository structure
-
-```text
-.
-├── .github/
-│   ├── CODEOWNERS
-│   ├── dependabot.yml
-│   └── workflows/
-│       ├── build.yml
-│       └── tests.yml
-│
-├── apps/
-│   ├── brave.json
-│   └── google-photos.json
-│
-├── tests/
-│   ├── test_common.py
-│   ├── test_monthly_release.py
-│   └── test_resolve_version.py
-│
-├── tools/
-│   ├── apkmirror.py
-│   ├── common.py
-│   ├── github_source.py
-│   ├── monthly_release.py
-│   ├── patch.py
-│   └── resolve_version.py
-│
-├── requirements.txt
-└── README.md
-```
-
-| Path | Purpose |
-| --- | --- |
-| `.github/workflows/build.yml` | Main build, sign, and publish pipeline |
-| `.github/workflows/tests.yml` | Unit-test workflow |
-| `.github/dependabot.yml` | Weekly dependency update configuration |
-| `apps/*.json` | Application/build configuration |
-| `tools/resolve_version.py` | Patch-supported version resolver |
-| `tools/apkmirror.py` | APKMirror downloader |
-| `tools/github_source.py` | GitHub asset downloader |
-| `tools/patch.py` | Morphe patching + manifest generation |
-| `tools/monthly_release.py` | Monthly release management |
-| `tools/common.py` | Shared helpers and validation |
-| `tests/` | Regression/unit tests |
-
----
-
-## 🕐 Automatic builds
-
-The scheduled workflow runs once per day:
+The workflow runs once per day:
 
 ```text
 02:00 UTC
-   ↓
+    ↓
 09:00 WIB
 ```
 
@@ -260,35 +177,69 @@ Cron:
 0 2 * * *
 ```
 
-Normal scheduled runs only build entries that actually need updating.
+Scheduled runs skip application/architecture combinations that are already up to date.
 
----
-
-## 🎛️ Manual builds
+## Manual builds
 
 The workflow supports `workflow_dispatch`.
 
-| Input | Purpose |
+| Input | Description |
 | --- | --- |
-| `app` | One app or all enabled apps |
-| `arch` | One architecture or all configured architectures |
-| `version_override` | Force a specific app version |
+| `app` | Build one app or all enabled apps |
+| `arch` | Build one architecture or all configured architectures |
+| `version_override` | Override the resolved application version |
 | `direct_apk_url` | Use a specific APK URL |
 | `allow_experimental` | Allow experimental patch targets |
-| `rebuild` | Rebuild even if assets already exist |
+| `rebuild` | Rebuild even when the release already contains the expected assets |
 
-### Input safety rules
+There are two validation rules for manual runs:
 
-- `version_override` requires a **single app**.
-- `direct_apk_url` requires a **single app + single architecture**.
+- `version_override` requires a single app.
+- `direct_apk_url` requires a single app and a single architecture.
 
-These checks prevent ambiguous matrix builds.
+## Repository layout
 
----
+```text
+.
+├── .github/
+│   ├── CODEOWNERS
+│   ├── dependabot.yml
+│   └── workflows/
+│       ├── build.yml
+│       └── tests.yml
+├── apps/
+│   ├── brave.json
+│   └── google-photos.json
+├── tests/
+│   ├── test_common.py
+│   ├── test_monthly_release.py
+│   └── test_resolve_version.py
+├── tools/
+│   ├── apkmirror.py
+│   ├── common.py
+│   ├── github_source.py
+│   ├── monthly_release.py
+│   ├── patch.py
+│   └── resolve_version.py
+├── requirements.txt
+└── README.md
+```
 
-## ➕ Adding another app
+| Path | Responsibility |
+| --- | --- |
+| `.github/workflows/build.yml` | Build, sign, and publish workflow |
+| `.github/workflows/tests.yml` | Unit-test workflow |
+| `.github/dependabot.yml` | Dependabot configuration |
+| `apps/*.json` | Application definitions |
+| `tools/resolve_version.py` | Patch-supported version selection |
+| `tools/apkmirror.py` | APKMirror downloads |
+| `tools/github_source.py` | GitHub asset downloads |
+| `tools/patch.py` | Morphe patching and manifest generation |
+| `tools/monthly_release.py` | Monthly release maintenance |
+| `tools/common.py` | Shared configuration and validation helpers |
+| `tests/` | Unit and regression tests |
 
-The workflow is intentionally configuration-driven.
+## Adding an application
 
 Create:
 
@@ -296,19 +247,19 @@ Create:
 apps/<id>.json
 ```
 
-Normally you do **not** need to copy or modify `build.yml`.
+The workflow does not need to be copied or modified for a normal new application.
 
-An app configuration describes:
+An application configuration defines:
 
 - Android package name
-- patch repository
+- Morphe patch repository
 - source type
 - architectures
 - patch bundle
 - flavors
 - experimental-target policy
 
-### GitHub source example
+### GitHub source
 
 ```json
 {
@@ -346,7 +297,7 @@ An app configuration describes:
 }
 ```
 
-### APKMirror source example
+### APKMirror source
 
 ```json
 {
@@ -365,9 +316,9 @@ An app configuration describes:
 }
 ```
 
-### Direct mirror example
+### Direct source
 
-Direct URLs can use `{version}` and `{package}` placeholders:
+Direct URLs can use `{version}` and `{package}` placeholders.
 
 ```json
 {
@@ -384,36 +335,70 @@ Direct URLs can use `{version}` and `{package}` placeholders:
 }
 ```
 
-### Temporarily disable an app
+Set `"enabled": false` to keep an application configuration without including it in the build matrix.
 
-Keep its configuration but remove it from the matrix:
+## Signing
 
-```json
-"enabled": false
+The workflow expects these GitHub Actions secrets:
+
+| Secret | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `KEYSTORE_BASE64` | Yes | — | Base64-encoded Android keystore |
+| `KEYSTORE_PASSWORD` | No | `android` | Keystore password |
+| `KEY_PASSWORD` | No | `android` | Private key password |
+| `KEY_ALIAS` | No | — | Alias when needed |
+
+Generate a keystore locally:
+
+```bash
+keytool -genkeypair -v \
+  -keystore release.keystore \
+  -alias morphe \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000 \
+  -storepass 'PASS' \
+  -keypass 'PASS' \
+  -dname "CN=Morphe Auto Build, OU=CI, O=Personal, C=ID"
+
+base64 -w0 release.keystore > keystore.b64
 ```
 
-This is useful when a source temporarily blocks CI or the patch needs maintenance.
+Do not commit either file.
 
----
+Set the repository secrets:
 
-## 💻 Local development
+```bash
+gh secret set KEYSTORE_BASE64 < keystore.b64
+gh secret set KEYSTORE_PASSWORD --body 'PASS'
+gh secret set KEY_PASSWORD --body 'PASS'
+gh secret set KEY_ALIAS --body 'morphe'
+```
 
-### Requirements
+Verify a built APK:
+
+```bash
+apksigner verify --print-certs output.apk
+```
+
+## Local development
+
+Requirements:
 
 - Python 3.12+
 - Java 21+
 - Android build tools containing `aapt`, `zipalign`, and `apksigner`
 - Chromium when the Playwright fallback is needed
-- Morphe Desktop CLI `.jar` for patching
+- Morphe Desktop CLI `.jar`
 
-### Install dependencies
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium --with-deps
 ```
 
-### Resolve a version
+Resolve a supported version:
 
 ```bash
 python3 tools/resolve_version.py \
@@ -423,7 +408,7 @@ python3 tools/resolve_version.py \
   --config apps/brave.json
 ```
 
-### Download from APKMirror
+Download from APKMirror:
 
 ```bash
 python3 tools/apkmirror.py \
@@ -433,7 +418,7 @@ python3 tools/apkmirror.py \
   --output base.apk
 ```
 
-### Download a GitHub asset
+Download a GitHub asset:
 
 ```bash
 python3 tools/github_source.py \
@@ -443,7 +428,7 @@ python3 tools/github_source.py \
   --output base.apk
 ```
 
-### Patch locally
+Patch locally:
 
 ```bash
 python3 tools/patch.py \
@@ -454,117 +439,100 @@ python3 tools/patch.py \
   --base base.apk
 ```
 
----
+## Testing
 
-## 🧪 Testing
-
-Run all unit tests:
+Run the unit tests:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Current tests cover important behavior including:
+The tests cover:
 
-- architecture configuration parsing,
-- APK/APKM validation,
-- patch target selection,
-- stable vs experimental target handling,
-- release-note section replacement,
-- stale asset detection.
+- architecture configuration parsing
+- APK/APKM validation
+- patch target selection
+- stable and experimental target handling
+- release-note section replacement
+- stale asset detection
 
 The test workflow also runs on relevant pushes and pull requests.
 
----
-
-## ♻️ Dependency updates
+## Dependency maintenance
 
 Dependabot is configured for:
 
-- **GitHub Actions**
-- **Python / pip dependencies**
+- GitHub Actions
+- Python dependencies
 
-Updates are checked weekly and grouped to reduce unnecessary PR noise.
+Updates are checked weekly and grouped to reduce unnecessary pull requests.
 
-Python dependencies remain pinned in `requirements.txt` so CI is deterministic while Dependabot can propose controlled upgrades.
+Python dependencies are pinned in `requirements.txt`, while Dependabot proposes version updates.
 
-GitHub Actions are pinned to commit SHAs rather than floating tags.
+GitHub Actions are pinned to commit SHAs rather than floating version tags.
 
-> Dependabot configuration becomes active for version updates once this configuration is present on the repository's default branch.
+The Dependabot configuration needs to exist on the repository's default branch before GitHub uses it for normal version-update PRs.
 
----
+## Playwright cache
 
-## ⚡ Playwright cache
+The APKMirror downloader can fall back to Playwright when an HTTP request encounters a browser-based Cloudflare challenge.
 
-APKMirror may require Playwright/Chromium when the fast HTTP path encounters a Cloudflare JavaScript challenge.
-
-The workflow caches:
+The CI workflow caches:
 
 ```text
 ~/.cache/ms-playwright
 ```
 
-The cache is keyed from the Python dependency state, so changing the Playwright dependency naturally results in a new cache.
+The cache key includes the Python dependency state. Updating the Playwright dependency therefore creates a new cache instead of reusing browser binaries from an incompatible version.
 
-This avoids downloading Chromium from scratch on every eligible CI run.
+## CI security and reliability
 
----
+The workflow includes:
 
-## 🔒 CI security and reliability
+- read-only `contents` permissions by default
+- write permission only for publishing
+- commit-SHA-pinned GitHub Actions
+- signing keys stored in Actions secrets
+- package validation before patching
+- a pinned Morphe CLI version
+- workflow concurrency to prevent overlapping release jobs
+- CODEOWNERS for CI-sensitive paths
+- a separate unit-test workflow
 
-The automation includes several hardening measures:
+The build also avoids unnecessary work by checking the current release before downloading and patching.
 
-- Minimal `contents` permissions by default.
-- Write permission only where publishing requires it.
-- GitHub Actions pinned to commit SHAs.
-- Signing keys stored only in Actions secrets.
-- Downloaded packages validated before patching.
-- Morphe CLI version pinned in CI.
-- Concurrency prevents overlapping scheduled/manual runs from racing.
-- CODEOWNERS keeps CI-sensitive files visible for review.
-- Unit tests run separately from the production build.
-- Existing releases are checked before expensive build work.
-
-The objective is reproducible automation without turning every supported app into a separate workflow.
-
----
-
-## 🧭 Design principles
+## Design principles
 
 ### Configuration over duplication
 
-Add an app configuration instead of cloning the workflow.
+Applications are represented as data under `apps/` instead of separate workflows.
 
 ### Fail early
 
-Reject malformed or unexpected downloads before patching.
+Bad or unexpected downloads are rejected before patching.
 
 ### Deterministic inputs
 
-The patch version and base application version should be explicitly resolved before the build starts.
+The patch version and application version are resolved explicitly before the build.
 
 ### Manifest-driven outputs
 
-Signing and publishing consume files actually produced by the patcher.
+Signing and publishing operate on files recorded by the patcher.
 
 ### Idempotent publishing
 
-Repeating an unchanged build should not create duplicate release assets.
+Repeating an unchanged build should not create another copy of the same release assets.
 
-### Avoid unnecessary work
+### Keep expensive work conditional
 
-Already-published builds are skipped unless explicitly rebuilt.
+If the release already contains the expected outputs, the download and patch stages are skipped.
 
----
+## Notes
 
-## 📝 Notes
+The original Google Photos-only prototype (`cuma-contoh.py`) was removed when the project was refactored into the modular `tools/` architecture.
 
-The original Google Photos-only prototype (`cuma-contoh.py`) was removed after the project was refactored into the modular `tools/` architecture.
+This repository provides the automation layer around Morphe patch definitions. Patch behavior itself belongs to the corresponding patch repositories.
 
-For patch-specific behavior, see the corresponding Morphe patch repository. This project provides the automation layer around those patch definitions; it does not define the patches themselves.
+## License
 
----
-
-## 📜 License
-
-See [LICENSE](LICENSE) for licensing information.
+See [LICENSE](LICENSE).
