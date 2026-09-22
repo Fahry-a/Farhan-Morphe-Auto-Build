@@ -227,6 +227,58 @@ Aptoide is accessed through its public API.
 
 The downloader finds the requested vername, obtains the corresponding vercode, requests metadata and downloads the returned package path.
 
+### Per-mirror package types
+
+Mirror configurations may override the source-level package type with their own `file_type`. This is useful when different mirrors publish the same application version in different package formats.
+
+Example:
+
+~~~json
+{
+  "type": "mirrors",
+  "file_type": "apk",
+  "mirrors": [
+    {
+      "type": "apkpure",
+      "name": "pinterest",
+      "file_type": "xapk"
+    },
+    {
+      "type": "uptodown",
+      "name": "pinterest",
+      "file_type": "xapk"
+    },
+    {
+      "type": "aptoide",
+      "file_type": "apk"
+    }
+  ]
+}
+~~~
+
+The effective package type is resolved in this order:
+
+~~~text
+mirror.file_type
+       ↓ if absent
+source.file_type
+       ↓ if absent
+apk
+~~~
+
+The selected type is used both when choosing a mirror asset and when validating the downloaded package. This prevents a bundle such as XAPK from being treated as a monolithic APK.
+
+For example, a Pinterest configuration can explicitly document:
+
+| Mirror | Format that is validated |
+| --- | --- |
+| APKPure | XAPK |
+| Uptodown | XAPK |
+| Aptoide | APK |
+
+This also handles mirrors that return a bundle for a requested version. The package validator must validate the configured bundle type rather than only checking for an APK root manifest.
+
+
 ### GitHub
 
 Use:

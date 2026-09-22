@@ -14,6 +14,7 @@ from tools.mirror_download import (
     uptodown_link,
     _download_uptodown_cdn,
     download_from_mirror,
+    mirror_file_type,
 )
 
 
@@ -66,7 +67,7 @@ class MirrorDownloaderTests(unittest.TestCase):
             "https://cdn.example.test/audiorelay-0.26.1.apk",
         )
         mock_auth.assert_called()
-        mock_file_id.assert_called_once_with("audiorelay", 12345, "0.26.1")
+        mock_file_id.assert_called_once_with("audiorelay", 12345, "0.26.1", "apk")
         self.assertIn("/apps/byPackagename/", mock_api.call_args_list[0].args[0])
         self.assertIn(
             "/apps/12345/file/67890/downloadUrl",
@@ -100,6 +101,44 @@ class MirrorDownloaderTests(unittest.TestCase):
             aptoide_link("com.azefsw.audioconnect", "0.26.1", "universal"),
             "https://example.test/app.apk",
         )
+
+    def test_mirror_file_type_overrides_source_default(self):
+        cfg = {
+            "source": {
+                "file_type": "apk",
+                "mirrors": [
+                    {"type": "apkpure", "file_type": "xapk"},
+                    {"type": "uptodown", "file_type": "apk"},
+                    {"type": "aptoide"},
+                ],
+            }
+        }
+        self.assertEqual(mirror_file_type(cfg, "apkpure"), "xapk")
+        self.assertEqual(mirror_file_type(cfg, "uptodown"), "apk")
+        self.assertEqual(mirror_file_type(cfg, "aptoide"), "apk")
+
+    def test_uptodown_selects_requested_file_type(self):
+        payload = {
+            "data": [
+                {
+                    "version": "14.34.0",
+                    "fileID": 1,
+                    "kindFile": "XAPK",
+                    "versionURL": {"url": "https://example.test/x", "extraURL": "a", "versionID": 1},
+                },
+                {
+                    "version": "14.34.0",
+                    "fileID": 2,
+                    "kindFile": "APK",
+                    "versionURL": {"url": "https://example.test/a", "extraURL": "b", "versionID": 2},
+                },
+            ]
+        }
+        with patch("tools.mirror_download.http_read", return_value=json.dumps(payload).encode()):
+            self.assertEqual(
+                _uptodown_html_file_id("pinterest", 123, "14.34.0", "apk"),
+                2,
+            )
 
     def test_uptodown_current_page_helpers(self):
         html = """
@@ -286,8 +325,8 @@ class MirrorDownloaderTests(unittest.TestCase):
             download_from_mirror("uptodown", cfg, "universal", "1.2.3", "out.apk"),
             "1.2.3",
         )
-        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3")
-        mock_scrape.assert_called_once_with("example", "1.2.3")
+        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3", "apk")
+        mock_scrape.assert_called_once_with("example", "1.2.3", "apk")
         mock_download.assert_called_once_with("https://example.test/fallback.apk", "out.apk")
 
     @patch("tools.mirror_download._download_uptodown_cdn")
@@ -302,7 +341,7 @@ class MirrorDownloaderTests(unittest.TestCase):
             download_from_mirror("uptodown", cfg, "universal", "1.2.3", "out.apk"),
             "1.2.3",
         )
-        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3")
+        mock_link.assert_called_once_with("com.example.test", "example", "1.2.3", "apk")
         mock_download.assert_called_once_with("https://example.test/a.apk", "out.apk")
 
     @patch("tools.mirror_download.http_read")

@@ -38,6 +38,8 @@ configuration
 
 The workflow does not accept an arbitrary application-version override. The application version is selected from versions supported by the selected Morphe patch.
 
+Mirror sources can define a package type per mirror. A mirror-level `file_type` overrides the source-level value; if neither is set, `apk` is used. This allows configurations where one mirror provides XAPK while another provides APK for the same application.
+
 ## Manual workflow
 
 The build workflow supports:

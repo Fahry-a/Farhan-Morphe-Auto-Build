@@ -10,14 +10,17 @@
     "mirrors": [
       {
         "type": "apkpure",
-        "name": "audiorelay-stream-audio-mic"
+        "name": "audiorelay-stream-audio-mic",
+        "file_type": "apk"
       },
       {
         "type": "uptodown",
-        "name": "audiorelay"
+        "name": "audiorelay",
+        "file_type": "apk"
       },
       {
-        "type": "aptoide"
+        "type": "aptoide",
+        "file_type": "apk"
       }
     ],
     "archs": [

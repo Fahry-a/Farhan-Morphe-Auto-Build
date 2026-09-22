@@ -83,6 +83,16 @@ def _apkpure_headers():
 _APKPURE_ASSET_TYPES = ("APK", "XAPK")
 
 
+def mirror_file_type(cfg, kind):
+    """Return the package type expected from a specific mirror."""
+    source = cfg["source"]
+    mirror = next(
+        (m for m in source.get("mirrors", []) if m["type"] == kind),
+        {},
+    )
+    return mirror.get("file_type") or source.get("file_type", "apk")
+
+
 def apkpure_link(package, name, version, prefer="APK"):
     # APKPure's mobile API exposes historical versions and their CDN asset
     # URLs without requiring the web page's Cloudflare/anti-bot flow.
@@ -227,7 +237,7 @@ def _uptodown_api_get_json(path, token):
         return json.loads(r.read())
 
 
-def _uptodown_html_file_id(name, app_id, version):
+def _uptodown_html_file_id(name, app_id, version, file_type="apk"):
     """Resolve an exact fileID through the public HTML versions endpoint.
 
     The eAPI compatible/versions endpoint currently returns
@@ -245,16 +255,22 @@ def _uptodown_html_file_id(name, app_id, version):
         for item in items:
             if item.get("version") != version:
                 continue
+            kind_file = str(item.get("kindFile", "")).lower()
+            wanted = str(file_type or "apk").lower()
+            if kind_file and kind_file != wanted:
+                continue
             file_id = item.get("fileID") or item.get("fileid")
             if not file_id:
                 raise RuntimeError(
                     f"Uptodown version {version} has no file ID"
                 )
             return file_id
-    raise RuntimeError(f"Uptodown version {version} not found")
+    raise RuntimeError(
+        f"Uptodown version {version} with file_type {file_type} not found"
+    )
 
 
-def uptodown_link(package, name, version):
+def uptodown_link(package, name, version, file_type="apk"):
     token = _uptodown_auth_token()
     try:
         data = _uptodown_api_get_json(
@@ -277,7 +293,7 @@ def uptodown_link(package, name, version):
 
     # Exact version is mandatory; never fall back to the closest release.
     # Resolved via the public HTML versions JSON (no auth, paginated).
-    file_id = _uptodown_html_file_id(name, app_id, version)
+    file_id = _uptodown_html_file_id(name, app_id, version, file_type)
 
     try:
         data = _uptodown_api_get_json(
@@ -415,7 +431,7 @@ def download_apkmirror(cfg, arch, version, output):
     )
 
 
-def _uptodown_scrape_link(name, version):
+def _uptodown_scrape_link(name, version, file_type="apk"):
     """Resolve an exact Uptodown version using its current version API + HTML."""
     from bs4 import BeautifulSoup
 
@@ -448,6 +464,10 @@ def _uptodown_scrape_link(name, version):
         for item in data.get("data", []):
             if item.get("version") != version:
                 continue
+            kind_file = str(item.get("kindFile", "")).lower()
+            wanted = str(file_type or "apk").lower()
+            if kind_file and kind_file != wanted:
+                continue
             info = item.get("versionURL")
             if not isinstance(info, dict):
                 raise RuntimeError(f"Uptodown version {version} has no version URL")
@@ -459,7 +479,9 @@ def _uptodown_scrape_link(name, version):
         if version_url:
             break
     if not version_url:
-        raise RuntimeError(f"Uptodown HTML version {version} not found")
+        raise RuntimeError(
+            f"Uptodown version {version} with file_type {file_type} not found"
+        )
 
     page = http_read(version_url)
     page_version = _uptodown_page_version(page)
@@ -468,8 +490,8 @@ def _uptodown_scrape_link(name, version):
     return _uptodown_download_url(page)
 
 
-def _download_uptodown(name, version, output):
-    url = _uptodown_scrape_link(name, version)
+def _download_uptodown(name, version, output, file_type="apk"):
+    url = _uptodown_scrape_link(name, version, file_type)
     download_url(
         url,
         output,
@@ -485,20 +507,22 @@ def download_from_mirror(kind, cfg, arch, version, output):
     if kind == "apkmirror":
         return download_apkmirror(cfg, arch, version, output)
     if kind == "apkpure":
-        prefer = {"xapk": "XAPK"}.get(
-            cfg["source"].get("file_type", "apk"), "APK")
+        prefer = {"xapk": "XAPK"}.get(mirror_file_type(cfg, kind), "APK")
         download_url(apkpure_link(package, name, version, prefer=prefer), output)
     elif kind == "uptodown":
         # Prefer Uptodown's eAPI. GitHub-hosted runner IPs can receive a
         # temporary/permanent 410 from the auth endpoint, so fall back to
         # the public exact-version page flow when the eAPI is unavailable.
         try:
-            _download_uptodown_cdn(uptodown_link(package, name, version), output)
+            _download_uptodown_cdn(
+                uptodown_link(package, name, version, mirror_file_type(cfg, kind)),
+                output,
+            )
         except urllib.error.HTTPError as exc:
             if getattr(exc, "code", None) != 410:
                 raise
             _download_uptodown_cdn(
-                _uptodown_scrape_link(name, version),
+                _uptodown_scrape_link(name, version, mirror_file_type(cfg, kind)),
                 output,
             )
     elif kind == "aptoide":
@@ -530,7 +554,11 @@ def main():
             print(f"== Trying {kind} for {cfg['package']} {args.exact_version} ==")
             version = download_from_mirror(kind, cfg, args.arch,
                                            args.exact_version, tmp)
-            validate_package(tmp, file_type, expected_version=args.exact_version)
+            validate_package(
+                tmp,
+                mirror_file_type(cfg, kind),
+                expected_version=args.exact_version,
+            )
             os.replace(tmp, args.output)
             print(f"OK {args.output}: source={kind}, version={version}")
             if "GITHUB_OUTPUT" in os.environ:

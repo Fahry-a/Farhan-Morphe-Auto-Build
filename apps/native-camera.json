@@ -10,14 +10,17 @@
     "mirrors": [
       {
         "type": "apkpure",
-        "name": "native-camera"
+        "name": "native-camera",
+        "file_type": "xapk"
       },
       {
         "type": "uptodown",
-        "name": "native-camera"
+        "name": "native-camera",
+        "file_type": "xapk"
       },
       {
-        "type": "aptoide"
+        "type": "aptoide",
+        "file_type": "xapk"
       }
     ],
     "archs": [

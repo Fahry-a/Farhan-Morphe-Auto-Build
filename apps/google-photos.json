@@ -9,18 +9,22 @@
     "file_type": "apk",
     "mirrors": [
       {
-        "type": "apkmirror"
+        "type": "apkmirror",
+        "file_type": "apk"
       },
       {
         "type": "apkpure",
-        "name": "google-photos"
+        "name": "google-photos",
+        "file_type": "apk"
       },
       {
         "type": "uptodown",
-        "name": "google-photos"
+        "name": "google-photos",
+        "file_type": "apk"
       },
       {
-        "type": "aptoide"
+        "type": "aptoide",
+        "file_type": "apk"
       }
     ],
     "archs": [

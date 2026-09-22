@@ -9,15 +9,18 @@
     "file_type": "apk",
     "mirrors": [
       {
-        "type": "apkpure",
-        "name": "pinterest"
-      },
-      {
         "type": "uptodown",
-        "name": "pinterest"
+        "name": "pinterest",
+        "file_type": "apk"
       },
       {
-        "type": "aptoide"
+        "type": "apkpure",
+        "name": "pinterest",
+        "file_type": "xapk"
+      },
+      {
+        "type": "aptoide",
+        "file_type": "apk"
       }
     ],
     "archs": [
