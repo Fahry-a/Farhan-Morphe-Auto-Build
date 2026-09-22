@@ -101,7 +101,14 @@ def main():
     download_url(url, args.output, token)
 
     if os.path.exists(args.output) and os.path.getsize(args.output) > 1_000_000:
-        file_type = "apkm" if asset.lower().endswith(".apkm") else "apk"
+        if args.config:
+            file_type = src.get("file_type", "apk")
+        elif asset.lower().endswith(".xapk"):
+            file_type = "xapk"
+        elif asset.lower().endswith(".apkm"):
+            file_type = "apkm"
+        else:
+            file_type = "apk"
         try:
             entries = validate_package(args.output, file_type, expected_version=args.apk_version or tag.lstrip('v'))
         except RuntimeError as e:
