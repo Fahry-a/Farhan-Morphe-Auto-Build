@@ -8,9 +8,9 @@ import urllib.request
 from pathlib import Path
 
 try:
-    from common import validate_package
+    from common import resolve_arch_entry, validate_package
 except ModuleNotFoundError:
-    from tools.common import validate_package
+    from tools.common import resolve_arch_entry, validate_package
 
 
 def http_get(url, headers=None, timeout=60):
@@ -76,7 +76,9 @@ def _uptodown_download_url(page_html):
     if not button or not button.get("data-url"):
         raise RuntimeError("Uptodown download token not found")
     data_url = button["data-url"]
-    return data_url if data_url.startswith(("http://", "https://")) else         f"https://dw.uptodown.com/dwn/{data_url}"
+    if data_url.startswith(("http://", "https://")):
+        return data_url
+    return f"https://dw.uptodown.com/dwn/{data_url}"
 
 
 def _uptodown_page_version(page_html):
@@ -146,11 +148,21 @@ def aptoide_link(package, version, arch):
         raise RuntimeError("Aptoide metadata response has no download path") from exc
 
 
+def download_apkmirror(cfg, arch, version, output):
+    from apkmirror import get_apkmirror_apk
+    entry = resolve_arch_entry(cfg["source"], arch)
+    return get_apkmirror_apk(
+        entry["variant_url"], output, entry["slug_filter"],
+        entry["version_slug"], exact_version=version,
+    )
+
+
 def download_from_mirror(kind, cfg, arch, version, output):
     package = cfg["package"]
     mirror = next((m for m in cfg["source"].get("mirrors", []) if m["type"] == kind), {})
     name = mirror.get("name") or cfg.get("display_name", cfg["id"]).lower().replace(" ", "-")
-    if kind == "apkpure":
+    if kind == "apkmirror":
+        return download_apkmirror(cfg, arch, version, output)\n    if kind == "apkpure":
         download_url(apkpure_link(package, name, version), output)
     elif kind == "uptodown":
         download_url(uptodown_link(package, name, version), output)
