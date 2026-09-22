@@ -319,13 +319,22 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           echo "::group::Align, sign and verify APKs"
-          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "ERROR: KEYSTORE_BASE64 secret is not set"; exit 1
+          for secret_name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_PASSWORD KEY_ALIAS; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Required signing secret $secret_name is not set."
+              exit 1
+            fi
+          done
+          if ! printf "%s" "$KEYSTORE_BASE64" | base64 -d > release.keystore; then
+            echo "::error::KEYSTORE_BASE64 is not valid base64."
+            exit 1
           fi
-          printf "%s" "$KEYSTORE_BASE64" | base64 -d > release.keystore
-          # Defaults keep backward compatibility; set the secrets to change them.
-          KS_PASS="${KEYSTORE_PASSWORD:-android}"
-          KEY_PASS="${KEY_PASSWORD:-android}"
+          test -s release.keystore || {
+            echo "::error::Decoded keystore is empty."
+            exit 1
+          }
+          KS_PASS="$KEYSTORE_PASSWORD"
+          KEY_PASS="$KEY_PASSWORD"
           VER="${{ steps.resolve.outputs.apk_version }}"
           BASE_FILE="${{ steps.download.outputs.base_file }}"
           BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
