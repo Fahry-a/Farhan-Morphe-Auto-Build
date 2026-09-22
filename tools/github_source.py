@@ -137,13 +137,10 @@ def main():
         sys.exit(1)
     print(f"OK {args.output} ({os.path.getsize(args.output):,} bytes, "
           f"{entries} zip entries, type={file_type})")
-        if "GITHUB_OUTPUT" in os.environ:
-            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-                fh.write(f"apk_version={tag.lstrip('v')}\n")
-                fh.write(f"base_file={args.output}\n")
-    else:
-        print("Result file is missing or too small!", file=sys.stderr)
-        sys.exit(1)
+    if "GITHUB_OUTPUT" in os.environ:
+        with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+            fh.write(f"apk_version={expected_version}\n")
+            fh.write(f"base_file={args.output}\n")
 
 
 if __name__ == "__main__":
