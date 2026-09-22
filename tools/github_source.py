@@ -103,7 +103,7 @@ def main():
     if os.path.exists(args.output) and os.path.getsize(args.output) > 1_000_000:
         file_type = "apkm" if asset.lower().endswith(".apkm") else "apk"
         try:
-            entries = validate_package(args.output, file_type)
+            entries = validate_package(args.output, file_type, expected_version=args.apk_version or tag.lstrip('v'))
         except RuntimeError as e:
             print(f"Validation failed: {e}", file=sys.stderr)
             sys.exit(1)
