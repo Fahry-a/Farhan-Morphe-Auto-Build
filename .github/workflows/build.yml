@@ -39,15 +39,39 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: morphe-auto-build
+  cancel-in-progress: false
+
+env:
+  MORPHE_CLI_VERSION: '1.16.0'
 
 jobs:
   setup:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.list.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate manual inputs
+        env:
+          ONLY_APP: ${{ inputs.app }}
+          ONLY_ARCH: ${{ inputs.arch }}
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+          DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
+        run: |
+          if [ -n "$VERSION_OVERRIDE" ] && [ "$ONLY_APP" = "all" ]; then
+            echo "::error::version_override requires a single app (app != all)."
+            exit 1
+          fi
+          if [ -n "$DIRECT_APK_URL" ] && { [ "$ONLY_APP" = "all" ] || [ "$ONLY_ARCH" = "all" ]; }; then
+            echo "::error::direct_apk_url requires a single app and a single arch."
+            exit 1
+          fi
       - id: list
         env:
           ONLY_APP: ${{ inputs.app }}
@@ -70,7 +94,11 @@ jobs:
                   pairs.append({'app': cfg['id'], 'arch': arch['name'], 'config': path})
           print(json.dumps(pairs))
           ")
-          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          if [ "$MATRIX" = "[]" ]; then
+            echo "::error::No enabled app/arch pair matched the requested inputs."
+            exit 1
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "Pairs: $MATRIX"
 
   build:
@@ -81,19 +109,31 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.setup.outputs.matrix) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Java 21 (for the morphe-desktop CLI)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Install Python deps + Playwright Chromium
         run: |
@@ -154,7 +194,7 @@ jobs:
       - name: Download prebuilt .mpp
         if: steps.check.outputs.skip != 'true'
         run: |
-          curl -L -o patches.mpp "${{ steps.resolve.outputs.mpp_url }}"
+          curl --fail --location --retry 3 --retry-all-errors -o patches.mpp "${{ steps.resolve.outputs.mpp_url }}"
           ls -la patches.mpp
 
       - name: Download base package
@@ -162,6 +202,7 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
         run: |
           TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source']['type'])")
           FILE_TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source'].get('file_type', 'apk'))")
@@ -172,20 +213,23 @@ jobs:
           esac
           echo "base_file=$BASE_FILE" >> $GITHUB_OUTPUT
           echo "file_type=$FILE_TYPE" >> $GITHUB_OUTPUT
-          if [ -n "${{ inputs.direct_apk_url }}" ]; then
+          if [ -n "$DIRECT_APK_URL" ]; then
             echo "Using manual direct APK URL"
-            python3 -c "
+            BASE_FILE="$BASE_FILE" python3 - <<'PY'
+          import os
           from curl_cffi import requests
-          url = '${{ inputs.direct_apk_url }}'
-          r = requests.get(url, impersonate='chrome131', stream=True, timeout=120)
+          url = os.environ["DIRECT_APK_URL"]
+          output = os.environ["BASE_FILE"]
+          r = requests.get(url, impersonate="chrome131", stream=True, timeout=120)
           r.raise_for_status()
           total = 0
-          with open('$BASE_FILE', 'wb') as fh:
+          with open(output, "wb") as fh:
               for ch in r.iter_content(8192):
                   if ch:
-                      fh.write(ch); total += len(ch)
-          print(f'{total:,} bytes')
-          "
+                      fh.write(ch)
+                      total += len(ch)
+          print(f"{total:,} bytes")
+          PY
           elif [ "$TYPE" = "apkmirror" ]; then
             python3 tools/apkmirror.py --config "${{ matrix.config }}" \
               --arch "${{ matrix.arch }}" \
@@ -233,13 +277,13 @@ jobs:
 
       - name: Setup Morphe CLI
         if: steps.check.outputs.skip != 'true'
+        env:
+          MORPHE_CLI_VERSION: ${{ env.MORPHE_CLI_VERSION }}
         run: |
-          CLI_URL=$(curl -s https://api.github.com/repos/MorpheApp/morphe-desktop/releases/latest | grep "browser_download_url.*morphe-desktop.*all.jar" | cut -d '"' -f 4 | head -n 1)
-          if [ -z "$CLI_URL" ]; then
-            CLI_URL="https://github.com/MorpheApp/morphe-desktop/releases/download/v1.16.0/morphe-desktop-1.16.0-all.jar"
-          fi
+          CLI_URL="https://github.com/MorpheApp/morphe-desktop/releases/download/v$MORPHE_CLI_VERSION/morphe-desktop-$MORPHE_CLI_VERSION-all.jar"
           echo "CLI: $CLI_URL"
-          curl -L -o morphe-cli.jar "$CLI_URL"
+          curl --fail --location --retry 3 --retry-all-errors -o morphe-cli.jar "$CLI_URL"
+          test -s morphe-cli.jar
 
       - name: Patch all flavors
         if: steps.check.outputs.skip != 'true'
@@ -252,6 +296,7 @@ jobs:
       - name: Sign APKs
         if: steps.check.outputs.skip != 'true'
         env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -259,7 +304,7 @@ jobs:
           if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "ERROR: KEYSTORE_BASE64 secret is not set"; exit 1
           fi
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+          printf "%s" "$KEYSTORE_BASE64" | base64 -d > release.keystore
           # Defaults keep backward compatibility; set the secrets to change them.
           KS_PASS="${KEYSTORE_PASSWORD:-android}"
           KEY_PASS="${KEY_PASSWORD:-android}"
@@ -304,7 +349,7 @@ jobs:
 
       - name: Upload build artifacts
         if: steps.check.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ready-${{ matrix.app }}-${{ matrix.arch }}
           path: |
@@ -320,8 +365,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         continue-on-error: true
         with:
           pattern: ready-*
