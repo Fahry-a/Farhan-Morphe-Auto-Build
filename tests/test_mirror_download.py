@@ -14,6 +14,7 @@ from tools.mirror_download import (
     uptodown_link,
     _download_uptodown_cdn,
     download_from_mirror,
+    mirror_file_type,
 )
 
 
@@ -100,6 +101,44 @@ class MirrorDownloaderTests(unittest.TestCase):
             aptoide_link("com.azefsw.audioconnect", "0.26.1", "universal"),
             "https://example.test/app.apk",
         )
+
+    def test_mirror_file_type_overrides_source_default(self):
+        cfg = {
+            "source": {
+                "file_type": "apk",
+                "mirrors": [
+                    {"type": "apkpure", "file_type": "xapk"},
+                    {"type": "uptodown", "file_type": "apk"},
+                    {"type": "aptoide"},
+                ],
+            }
+        }
+        self.assertEqual(mirror_file_type(cfg, "apkpure"), "xapk")
+        self.assertEqual(mirror_file_type(cfg, "uptodown"), "apk")
+        self.assertEqual(mirror_file_type(cfg, "aptoide"), "apk")
+
+    def test_uptodown_selects_requested_file_type(self):
+        payload = {
+            "data": [
+                {
+                    "version": "14.34.0",
+                    "fileID": 1,
+                    "kindFile": "XAPK",
+                    "versionURL": {"url": "https://example.test/x", "extraURL": "a", "versionID": 1},
+                },
+                {
+                    "version": "14.34.0",
+                    "fileID": 2,
+                    "kindFile": "APK",
+                    "versionURL": {"url": "https://example.test/a", "extraURL": "b", "versionID": 2},
+                },
+            ]
+        }
+        with patch("tools.mirror_download.http_read", return_value=json.dumps(payload).encode()):
+            self.assertEqual(
+                _uptodown_html_file_id("pinterest", 123, "14.34.0", "apk"),
+                2,
+            )
 
     def test_uptodown_current_page_helpers(self):
         html = """
