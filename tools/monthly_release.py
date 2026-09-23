@@ -17,24 +17,38 @@ Creates the month release when it does not exist yet.
 import argparse
 import json
 import os
+import re
 import subprocess
-import sys
 
 
 def section_key(app, arch):
     return f"{app}:{arch}"
 
 
-def render_section(build):
+def download_url(repo, tag, filename):
+    return f"https://github.com/{repo}/releases/download/{tag}/{filename}"
+
+
+def render_section(build, repo, tag):
     key = section_key(build["app"], build["arch"])
-    files = "\n".join(f"- `{f}`" for f in build["files"])
+    display = build.get("display") or build["app"]
+    files = "\n".join(
+        f"- [{f}]({download_url(repo, tag, f)})"
+        for f in build["files"]
+    )
     return (
         f"<!-- app:{key} -->\n"
-        f"### {build['app']} `{build['arch']}`\n"
-        f"{build['app']} ({build['arch']}) "
-        f"v{build['apk_version']} "
-        f"(build {build['build_date']}, mpp {build['mpp_version']})\n"
-        f"{files}\n"
+        f"<details open>\n\n"
+        f"<summary><strong>{display}</strong> · "
+        f"<code>{build['arch']}</code> — <code>v{build['apk_version']}</code></summary>\n\n"
+        f"| Build | Morphe | Date |\n"
+        f"| --- | --- | --- |\n"
+        f"| <code>v{build['apk_version']}</code> | "
+        f"<code>{build['mpp_version']}</code> | "
+        f"`{build['build_date']}` |\n\n"
+        f"**Downloads**\n\n"
+        f"{files}\n\n"
+        f"</details>\n"
         f"<!-- /app:{key} -->"
     )
 
@@ -60,9 +74,33 @@ def stale_assets(existing_names, app, arch, keep_files):
 
 
 def header(tag):
-    return (f"# Monthly builds {tag}\n\n"
-            "Updated in place by the daily workflow. "
-            "Each section shows the current version per app and arch.\n")
+    return (
+        f"# Monthly Builds · {tag}\n\n"
+        "> Updated in place by the daily workflow. "
+        "Each section shows the current build for an app and architecture.\n\n"
+        "## Downloads\n"
+    )
+
+
+def rebuild_release_body(body, builds, repo, tag):
+    """Rebuild managed sections alphabetically while keeping cumulative builds."""
+    pattern = re.compile(
+        r"<!-- app:(?P<key>[^>]+) -->.*?<!-- /app:(?P=key) -->",
+        re.DOTALL,
+    )
+    sections = {
+        match.group("key"): match.group(0).strip()
+        for match in pattern.finditer(body)
+    }
+    for build in builds:
+        sections[section_key(build["app"], build["arch"])] = render_section(
+            build, repo, tag
+        )
+    sorted_keys = sorted(sections, key=str.casefold)
+    downloads = "\n\n".join(sections[key] for key in sorted_keys)
+    return header(tag) + "\n\n" + downloads + "\n"
+
+
 
 
 def gh(*args, repo):
@@ -125,7 +163,9 @@ def main():
         existing = [n for n in existing if n not in stale_assets(
             existing, build["app"], build["arch"], build["files"])]
         existing += [f for f in build["files"] if f not in existing]
-        body = upsert_section(body, key, render_section(build))
+        body = upsert_section(body, key, render_section(build, args.repo, args.tag))
+
+    body = rebuild_release_body(body, builds, args.repo, args.tag)
 
     with open("release-body.md", "w") as fh:
         fh.write(body)
