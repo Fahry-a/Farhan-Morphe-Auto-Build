@@ -9,6 +9,12 @@
     "file_type": "apk",
     "mirrors": [
       {
+        "type": "apkmirror",
+        "org": "pinterest",
+        "repo": "pinterest-one-destination-for-a-world-of-inspiration",
+        "file_type": "apk"
+      },
+      {
         "type": "apkcombo",
         "name": "pinterest",
         "file_type": "apk"
