@@ -9,11 +9,11 @@ Configuration-driven GitHub Actions automation for building Morphe-patched Andro
 
 | Application | Package | Patch repository | Sources | Architectures | Flavors |
 | --- | --- | --- | --- | --- | --- |
-| Google Photos | com.google.android.apps.photos | Akash-Sriram/morphe-google-photos | APKMirror → APKPure → Uptodown → Aptoide | Universal | mod, original |
+| Google Photos | com.google.android.apps.photos | Akash-Sriram/morphe-google-photos | APKMirror → APKPure → APKCombo → Aptoide | Universal | mod, original |
 | Brave Browser | com.brave.browser | kveld9/kveld-morphe-patches | GitHub | ARM64, ARM32 | Default |
-| AudioRelay | com.azefsw.audioconnect | kiraio-moe/Lain-Patches | APKPure → Uptodown → Aptoide | Universal | Default |
-| Native Camera | com.rawcam.app | WaggBR/Wagg13Patch_Morphe | APKPure → Uptodown → Aptoide | Universal | Default |
-| Pinterest | com.pinterest | browzomje/browzomje-patches | APKPure → Uptodown → Aptoide | Universal | Default |
+| AudioRelay | com.azefsw.audioconnect | kiraio-moe/Lain-Patches | APKPure → APKCombo → Aptoide | Universal | Default |
+| Native Camera | com.rawcam.app | WaggBR/Wagg13Patch_Morphe | APKPure → APKCombo → Aptoide | Universal | Default |
+| Pinterest | com.pinterest | browzomje/browzomje-patches | APKPure → APKCombo → Aptoide | Universal | Default |
 
 Brave assets:
 

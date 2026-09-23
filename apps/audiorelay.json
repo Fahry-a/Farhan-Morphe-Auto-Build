@@ -14,7 +14,7 @@
         "file_type": "apk"
       },
       {
-        "type": "uptodown",
+        "type": "apkcombo",
         "name": "audiorelay",
         "file_type": "apk"
       },
@@ -25,9 +25,7 @@
     ],
     "archs": [
       {
-        "name": "universal",
-        "slug_filter": "/android",
-        "version_slug": "audiorelay-"
+        "name": "universal"
       }
     ]
   },

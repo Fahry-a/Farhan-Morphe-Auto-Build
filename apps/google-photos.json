@@ -10,7 +10,9 @@
     "mirrors": [
       {
         "type": "apkmirror",
-        "file_type": "apk"
+        "file_type": "apk",
+        "org": "google-inc",
+        "repo": "photos"
       },
       {
         "type": "apkpure",
@@ -18,7 +20,7 @@
         "file_type": "apk"
       },
       {
-        "type": "uptodown",
+        "type": "apkcombo",
         "name": "google-photos",
         "file_type": "apk"
       },
@@ -29,10 +31,7 @@
     ],
     "archs": [
       {
-        "name": "universal",
-        "variant_url": "https://www.apkmirror.com/apk/google-inc/photos/variant-%7B%22dpis_slug%22%3A%5B%22nodpi%22%5D%2C%22arches_slug%22%3A%5B%22arm64-v8a%22%2C%22armeabi-v7a%22%2C%22x86%22%2C%22x86_64%22%5D%7D/",
-        "slug_filter": "/apk/google-inc/photos/",
-        "version_slug": "google-photos-"
+        "name": "universal"
       }
     ]
   },

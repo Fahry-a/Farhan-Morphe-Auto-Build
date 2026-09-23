@@ -30,7 +30,7 @@ class LiveMirrorDownloadTests(unittest.TestCase):
         mirrors = self.config["source"]["mirrors"]
         self.assertEqual(
             [m["type"] for m in mirrors],
-            ["apkpure", "uptodown", "aptoide"],
+            ["apkpure", "apkcombo", "aptoide"],
         )
 
         failures = []

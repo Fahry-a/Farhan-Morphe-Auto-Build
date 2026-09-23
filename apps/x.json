@@ -9,14 +9,16 @@
     "file_type": "apk",
     "mirrors": [
       {
-        "type": "apkmirror"
+        "type": "apkmirror",
+        "org": "x-corp",
+        "repo": "twitter"
       },
       {
         "type": "apkpure",
         "name": "twitter"
       },
       {
-        "type": "uptodown",
+        "type": "apkcombo",
         "name": "twitter"
       },
       {
@@ -25,10 +27,7 @@
     ],
     "archs": [
       {
-        "name": "universal",
-        "variant_url": "https://www.apkmirror.com/apk/x-corp/twitter/variant-%7B%22arches_slug%22%3A%5B%22arm64-v8a%22%2C%22armeabi-v7a%22%2C%22x86%22%2C%22x86_64%22%5D%2C%22dpis_slug%22%3A%5B%22120%22%2C%22160%22%2C%22213%22%2C%22240%22%2C%22320%22%2C%22480%22%2C%22640%22%5D%7D/",
-        "slug_filter": "/apk/x-corp/twitter/",
-        "version_slug": "x-"
+        "name": "universal"
       }
     ]
   },

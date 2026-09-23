@@ -55,7 +55,7 @@ tools/
   common.py             Shared architecture/package validation
   resolve_version.py    Morphe target selection
   apkmirror.py          APKMirror downloader
-  mirror_download.py    APKMirror/APKPure/Uptodown/Aptoide fallback
+  mirror_download.py    apkd-backed mirror fallback (apkmirror/apkpure/apkcombo/aptoide)
   github_source.py      GitHub Release downloader
   direct.py             Direct URL downloader
   patch.py              Morphe invocation + manifest
@@ -177,16 +177,20 @@ APKMirror
     ↓ failure
 APKPure
     ↓ failure
-Uptodown
+APKCombo
     ↓ failure
 Aptoide
 ~~~
 
-Every candidate must be downloaded to a temporary .partial file and validated before it becomes the final package.
+Every candidate is resolved at its exact version through the
+[apkd](https://github.com/Fahry-a/apkd) library
+(`apkd @ git+https://github.com/Fahry-a/apkd` in requirements.txt),
+downloaded to a temporary .partial file and validated before it becomes
+the final package.
 
 ### APKMirror
 
-tools/apkmirror.py handles the APKMirror-specific navigation:
+Standalone `source.type == "apkmirror"` configs still use tools/apkmirror.py:
 
 ~~~text
 variant page
@@ -207,19 +211,41 @@ Configuration normally supplies:
 
 The downloader must honor the exact requested version.
 
+`source.type == "mirrors"` entries with `{"type": "apkmirror"}` go through
+apkd instead and only need the org/repo slug:
+
+~~~json
+{"type": "apkmirror", "org": "admtorrent", "repo": "advanced-download-manager"}
+~~~
+
+or `{"type": "apkmirror", "slug": "admtorrent/advanced-download-manager"}`.
+`variant_url` / `slug_filter` / `version_slug` are not used here — apkd
+builds the variant URL itself via `make_variants_url` + scraping and
+filters arch/dpi internally. Legacy arch hints are still parsed as a
+fallback; when no slug is configured apkd falls back to
+`APKD_APKMIRROR_SLUGS` env / auto-search (best-effort, can hit bot
+protection, so explicit slug is recommended for auto build).
+
 ### APKPure
 
-APKPure is handled by tools/mirror_download.py.
+APKPure is handled by tools/mirror_download.py via apkd.
 
 The downloader resolves the requested application version and extracts its package URL. It must not silently replace the requested version with latest.
 
 APKPure serves both monolithic APK and XAPK bundle assets. Both are accepted; the asset type matching the app config's file_type is preferred, so XAPK-only releases (e.g. Native Camera) download and validate as bundles.
 
-### Uptodown
+### APKCombo
 
-Uptodown is handled by tools/mirror_download.py.
+APKCombo is handled by tools/mirror_download.py via apkd.
 
-The downloader searches version listings, finds the exact requested version, opens its version page, extracts the download URL, then validates the resulting package.
+The downloader searches by package name, resolves the exact requested
+version (including old-versions), picks the matching arch variant, then
+validates the resulting package.
+
+Uptodown was removed: apkd dropped its provider because file URLs sit
+behind Cloudflare Turnstile, so all `type == "uptodown"` mirrors were
+migrated to `type == "apkcombo"`. tools/mirror_download.py fails fast
+with a migration hint if an old uptodown entry is still present.
 
 ### Aptoide
 
@@ -244,7 +270,7 @@ Example:
       "file_type": "xapk"
     },
     {
-      "type": "uptodown",
+      "type": "apkcombo",
       "name": "pinterest",
       "file_type": "xapk"
     },
@@ -273,7 +299,7 @@ For example, a Pinterest configuration can explicitly document:
 | Mirror | Format that is validated |
 | --- | --- |
 | APKPure | XAPK |
-| Uptodown | XAPK |
+| APKCombo | XAPK |
 | Aptoide | APK |
 
 This also handles mirrors that return a bundle for a requested version. The package validator must validate the configured bundle type rather than only checking for an APK root manifest.
@@ -764,7 +790,7 @@ Before opening a PR:
 ~~~text
 Package:       com.google.android.apps.photos
 Patch repo:    Akash-Sriram/morphe-google-photos
-Sources:       APKMirror → APKPure → Uptodown → Aptoide
+Sources:       APKMirror → APKPure → APKCombo → Aptoide
 Architecture:  universal
 Flavors:       mod, original
 ~~~
