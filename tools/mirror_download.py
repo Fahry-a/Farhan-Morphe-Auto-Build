@@ -95,15 +95,64 @@ def _apkmirror_slug_map(cfg, mirror=None):
     return {}
 
 
-def _build_request(package, version, arch, prefer_xapk):
+def _mirror_entry(cfg, kind):
+    return next(
+        (m for m in cfg.get("source", {}).get("mirrors", [])
+         if str(m.get("type") or "").lower() == str(kind or "").lower()),
+        {},
+    )
+
+
+def _build_request(package, version, arch, prefer_xapk, dpi=None, min_sdk=None):
     from apkd.models import DownloadRequest
 
     return DownloadRequest(
         package=package,
         version=version,
         arch=arch,
+        dpi=dpi,
+        min_sdk=min_sdk,
         prefer_xapk=prefer_xapk,
     )
+
+
+def _apkmirror_request_params(cfg, mirror, arch):
+    """Resolve (arch, dpi, min_sdk) hints for an apkmirror mirror entry.
+
+    Optional per-mirror overrides (``arch``/``dpi``/``min_sdk``) win over
+    the matrix arch. dpi defaults to ``"*"`` (any density): APKMirror
+    variants are usually density-scoped (e.g. ``120-640dpi``), so the old
+    ``nodpi``-only default filtered out every row.
+    """
+    return (
+        mirror.get("arch") or arch,
+        mirror.get("dpi") or "*",
+        mirror.get("min_sdk"),
+    )
+
+
+def _arch_candidates(arch):
+    """Arch values to try in order for apkmirror variant filtering.
+
+    apkd already falls back from a concrete ABI to universal rows, but not
+    the other way round: a ``universal`` matrix arch never matches
+    ABI-scoped rows, so retry once with arm64-v8a (which itself falls back
+    to universal rows inside apkd).
+    """
+    from apkd.providers.base import normalize_arch
+
+    candidates = [arch]
+    if (normalize_arch(arch) or "universal") in ("universal", "noarch"):
+        candidates.append("arm64-v8a")
+    return candidates
+
+
+_EXTENSION_FILE_TYPES = {
+    ".apk": "apk",
+    ".xapk": "xapk",
+    ".apkm": "apkm",
+    ".apks": "apks",
+}
 
 
 def _get_provider(kind, slug_map=None):
@@ -127,32 +176,72 @@ def download_from_mirror(kind, cfg, arch, version, output):
 
     package = cfg["package"]
     prefer_xapk = _prefer_xapk(cfg, normalized)
-    slug_map = None
-    if normalized == "apkmirror":
-        mirror = next(
-            (m for m in cfg.get("source", {}).get("mirrors", [])
-             if str(m.get("type") or "").lower() == "apkmirror"),
-            {},
-        )
-        slug_map = _apkmirror_slug_map(cfg, mirror)
 
     try:
-        provider = _get_provider(normalized, slug_map=slug_map)
-        request = _build_request(package, version, arch, prefer_xapk)
-        artifact = provider.resolve_request(request)
+        from apkd.models import DownloadRequest  # noqa: F401 (import check)
+        provider = _get_provider(
+            normalized,
+            slug_map=_apkmirror_slug_map(cfg, _mirror_entry(cfg, normalized))
+            if normalized == "apkmirror" else None,
+        )
     except ImportError as exc:
         raise RuntimeError(
             "apkd is not installed. Install with: "
             "pip install 'apkd @ git+https://github.com/Fahry-a/apkd'"
         ) from exc
 
-    if (
-        version is not None
-        and artifact.version is not None
-        and str(artifact.version).strip() != str(version).strip()
-    ):
+    if normalized == "apkmirror":
+        mirror = _mirror_entry(cfg, normalized)
+        _, dpi, min_sdk = _apkmirror_request_params(cfg, mirror, arch)
+        errors = []
+        for candidate in _arch_candidates(mirror.get("arch") or arch):
+            request = _build_request(package, version, candidate, prefer_xapk,
+                                     dpi=dpi, min_sdk=min_sdk)
+            try:
+                artifact = provider.resolve_request(request)
+            except Exception as exc:
+                errors.append(f"arch={candidate}: {exc}")
+                continue
+            if (
+                version is not None
+                and artifact.version is not None
+                and str(artifact.version).strip() != str(version).strip()
+            ):
+                errors.append(
+                    f"arch={candidate}: resolved {artifact.version}, "
+                    f"expected {version}"
+                )
+                continue
+            break
+        else:
+            raise RuntimeError(
+                f"apkmirror could not resolve {package} {version}: "
+                + "; ".join(errors)
+            )
+    else:
+        request = _build_request(package, version, arch, prefer_xapk)
+        try:
+            artifact = provider.resolve_request(request)
+        except ImportError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"{normalized} failed for {package} {version}: {exc}") from exc
+        if (
+            version is not None
+            and artifact.version is not None
+            and str(artifact.version).strip() != str(version).strip()
+        ):
+            raise RuntimeError(
+                f"{normalized} resolved version {artifact.version}, expected {version}"
+            )
+
+    actual = _EXTENSION_FILE_TYPES.get(str(artifact.extension or "").lower())
+    expected = str(mirror_file_type(cfg, normalized) or "apk").lower()
+    if actual is not None and actual != expected:
         raise RuntimeError(
-            f"{normalized} resolved version {artifact.version}, expected {version}"
+            f"{normalized} returned {artifact.extension} ({artifact.extra.get('variant_type', 'bundle')}) "
+            f"for {package} {artifact.version}, but config expects file_type={expected}; "
+            f"exact {version} is not published as {expected} on this mirror"
         )
 
     tmp = Path(output)

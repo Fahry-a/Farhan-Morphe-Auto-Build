@@ -220,11 +220,17 @@ apkd instead and only need the org/repo slug:
 
 or `{"type": "apkmirror", "slug": "admtorrent/advanced-download-manager"}`.
 `variant_url` / `slug_filter` / `version_slug` are not used here — apkd
-builds the variant URL itself via `make_variants_url` + scraping and
-filters arch/dpi internally. Legacy arch hints are still parsed as a
-fallback; when no slug is configured apkd falls back to
-`APKD_APKMIRROR_SLUGS` env / auto-search (best-effort, can hit bot
-protection, so explicit slug is recommended for auto build).
+discovers the real variants URL from the repo version listing (the display
+slug often differs from the repo slug: `x-` vs `twitter`,
+`google-photos-` vs `photos`) and filters arch/dpi client-side.
+
+Optional per-mirror hints: `arch`, `dpi`, `min_sdk`. `dpi` defaults to
+`"any"` (APKMirror rows are usually density-scoped like `120-640dpi`, so
+`nodpi`-only would match nothing); a `universal` matrix arch is retried
+once as `arm64-v8a` when no universal row matches. When the exact version
+only ships as a bundle, the mirror fails with an explicit
+`expects file_type=` error instead of silently writing bundle bytes to an
+`.apk` output — the pipeline cannot patch bundles as monolithic APKs.
 
 ### APKPure
 

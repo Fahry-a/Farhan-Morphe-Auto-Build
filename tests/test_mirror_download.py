@@ -7,6 +7,8 @@ from apkd.models import Artifact, DownloadRequest
 
 from tools.mirror_download import (
     _apkmirror_slug_map,
+    _arch_candidates,
+    _apkmirror_request_params,
     _derive_apkmirror_slug,
     _resolve_apkmirror_slug,
     _prefer_xapk,
@@ -115,8 +117,9 @@ class MirrorDownloaderTests(unittest.TestCase):
     def _run_provider(self, kind, file_type="apk", arch="universal",
                       version="1.2.3", artifact_version="1.2.3"):
         cfg = _cfg([{"type": kind, "file_type": file_type}])
+        extension = "." + file_type
         artifact = Artifact(kind, cfg["package"], artifact_version,
-                            "https://example.test/a.apk", ".apk", arch)
+                            f"https://example.test/a{extension}", extension, arch)
         fake = FakeProvider(artifact)
         with tempfile.TemporaryDirectory() as td:
             output = str(Path(td) / "out.apk")
@@ -162,6 +165,65 @@ class MirrorDownloaderTests(unittest.TestCase):
                 "apkmirror",
                 slug_map={"com.twitter.android": ("x-corp", "twitter")},
             )
+            # dpi defaults to any-density so density-scoped rows are not filtered out.
+            self.assertEqual(fake.seen_request.dpi, "*")
+            self.assertIsNone(fake.seen_request.min_sdk)
+
+    def test_apkmirror_request_params_prefer_mirror_overrides(self):
+        cfg = _cfg([{"type": "apkmirror", "arch": "arm64-v8a",
+                     "dpi": "480dpi", "min_sdk": 28}])
+        mirror = cfg["source"]["mirrors"][0]
+        self.assertEqual(
+            _apkmirror_request_params(cfg, mirror, "universal"),
+            ("arm64-v8a", "480dpi", 28),
+        )
+        self.assertEqual(
+            _apkmirror_request_params(cfg, {}, "universal"),
+            ("universal", "*", None),
+        )
+
+    def test_arch_candidates_retry_abi_for_universal(self):
+        self.assertEqual(_arch_candidates("universal"), ["universal", "arm64-v8a"])
+        self.assertEqual(_arch_candidates("arm64"), ["arm64"])
+
+    def test_download_from_mirror_apkmirror_retries_arch(self):
+        from apkd.models import ProviderError
+
+        cfg = _cfg([{"type": "apkmirror", "org": "o", "repo": "r"}],
+                   package="com.example.test")
+        artifact = Artifact("apkmirror", cfg["package"], "1.2.3",
+                            "https://example.test/a.apk", ".apk", "arm64-v8a")
+
+        seen = []
+
+        class FlakyProvider(FakeProvider):
+            def resolve_request(self, request):
+                seen.append(request.arch)
+                if request.arch == "universal":
+                    raise ProviderError("no suitable variant", provider="apkmirror")
+                return super().resolve_request(request)
+
+        fake = FlakyProvider(artifact)
+        with tempfile.TemporaryDirectory() as td:
+            output = str(Path(td) / "out.apk")
+            with patch("tools.mirror_download._get_provider", return_value=fake):
+                result = download_from_mirror(
+                    "apkmirror", cfg, "universal", "1.2.3", output)
+            self.assertEqual(result, "1.2.3")
+            self.assertEqual(seen, ["universal", "arm64-v8a"])
+
+    def test_download_from_mirror_rejects_bundle_for_apk_config(self):
+        cfg = _cfg([{"type": "apkmirror", "org": "o", "repo": "r"}])
+        artifact = Artifact("apkmirror", cfg["package"], "1.2.3",
+                            "https://example.test/a.apkm", ".apkm", "universal",
+                            {"variant_type": "bundle"})
+        fake = FakeProvider(artifact)
+        with tempfile.TemporaryDirectory() as td:
+            output = str(Path(td) / "out.apk")
+            with patch("tools.mirror_download._get_provider", return_value=fake):
+                with self.assertRaisesRegex(RuntimeError, "expects file_type=apk"):
+                    download_from_mirror(
+                        "apkmirror", cfg, "universal", "1.2.3", output)
 
     def test_download_from_mirror_rejects_version_mismatch(self):
         with self.assertRaisesRegex(RuntimeError, "expected 1.2.3"):
