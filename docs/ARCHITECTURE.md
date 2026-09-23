@@ -230,7 +230,14 @@ Optional per-mirror hints: `arch`, `dpi`, `min_sdk`. `dpi` defaults to
 once as `arm64-v8a` when no universal row matches. When the exact version
 only ships as a bundle, the mirror fails with an explicit
 `expects file_type=` error instead of silently writing bundle bytes to an
-`.apk` output — the pipeline cannot patch bundles as monolithic APKs.
+`.apk` output.
+
+Bundle-sourced apps declare it at the source level instead — ADM and X use
+`"file_type": "apkm"`, so the base file is `base.apkm`, validation checks
+the inner `base.apk` version with aapt, and Morphe merges the splits before
+patching (verified locally: ADM 14.0.39 `.apkm` patches cleanly into an
+unsigned APK). Per-mirror `file_type` still overrides per mirror, so APK
+mirrors stay usable as fallback wherever they serve the same version as APK.
 
 ### APKPure
 

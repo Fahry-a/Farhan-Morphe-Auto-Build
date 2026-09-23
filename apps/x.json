@@ -6,7 +6,7 @@
   "allow_experimental": false,
   "source": {
     "type": "mirrors",
-    "file_type": "apk",
+    "file_type": "apkm",
     "mirrors": [
       {
         "type": "apkmirror",
