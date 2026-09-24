@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import zipfile
 from pathlib import Path
 
 from apkd.models import DownloadRequest, ProviderError
@@ -55,6 +56,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _detect_container_type(path: Path) -> str:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise RuntimeError(f"Downloaded file is not a readable ZIP package: {exc}") from exc
+    if any(name.lower().endswith(".apk") for name in names):
+        return "bundle"
+    if "AndroidManifest.xml" in names:
+        return "apk"
+    raise RuntimeError("Downloaded ZIP has neither an APK nor AndroidManifest.xml")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if not args.metadata_only and args.output is None:
@@ -95,12 +109,28 @@ def main(argv: list[str] | None = None) -> int:
             output = output.with_suffix(artifact.extension)
         output.parent.mkdir(parents=True, exist_ok=True)
         provider.download(artifact, output)
+        actual_type = _detect_container_type(output)
+        expected_type = artifact.extension.lstrip(".").lower()
+        validation_type = actual_type
+        if actual_type == "bundle":
+            validation_type = (
+                expected_type
+                if expected_type in {"apkm", "xapk", "apks"}
+                else "apkm"
+            )
         entries = validate_package(
             str(output),
-            artifact.extension.lstrip("."),
+            validation_type,
             expected_version=args.version,
             expected_arch=args.arch,
+            expected_package=args.package,
         )
+        if actual_type != expected_type:
+            raise RuntimeError(
+                f"Uptodown returned a {actual_type} package, but the requested "
+                f"file type is {expected_type}; re-run with the matching "
+                "--prefer-xapk/--output option"
+            )
     except (ProviderError, RuntimeError, ValueError) as exc:
         print(f"Uptodown browser download failed: {exc}", file=sys.stderr)
         return 1

@@ -118,9 +118,14 @@ artifact has been validated locally:
 
 ~~~bash
 python tools/uptodown_browser.py com.pinterest \
-  --version 14.34.0 --app-slug pinterest --app-id 20013 --prefer-xapk \
-  --output /tmp/pinterest-14.34.0.xapk
+  --version 14.34.0 --app-slug pinterest --app-id 20013 \
+  --output /tmp/pinterest-14.34.0.apk
 ~~~
+
+For the current `14.34.0` test, use the APK candidate (`file_id=1210795434`).
+The XAPK candidate is retained only for diagnostics; a browser response that
+contains a monolithic APK or a different package is rejected rather than
+renamed.
 
 Run this on a local machine with a visible Chromium window. The script does
 not use a third-party solver and validates exact version plus the universal ARM
@@ -140,8 +145,8 @@ google-chrome \
 # Terminal 2: complete Turnstile in that Chrome window
 python tools/uptodown_browser.py com.pinterest \
   --version 14.34.0 --app-slug pinterest --app-id 20013 \
-  --cdp-url http://127.0.0.1:9222 --manual-click --prefer-xapk \
-  --output /tmp/pinterest-14.34.0.xapk
+  --cdp-url http://127.0.0.1:9222 --manual-click \
+  --output /tmp/pinterest-14.34.0.apk
 ~~~
 
 Keep the Pinterest entry `enabled: false` / `manual_browser: true`; GitHub

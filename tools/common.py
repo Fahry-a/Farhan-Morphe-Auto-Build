@@ -129,6 +129,14 @@ def _apk_version(path, aapt_path=None):
     return match.group(1)
 
 
+def _apk_package(path, aapt_path=None):
+    badging = _apk_badging(path, aapt_path)
+    match = re.search(r"^package:\s+name='([^']+)'", badging, re.MULTILINE)
+    if not match:
+        raise RuntimeError(f"aapt did not report package name for {path}")
+    return match.group(1)
+
+
 def _native_codes(badging: str) -> set[str]:
     match = re.search(r"^native-code:\s*(.*)$", badging, re.MULTILINE)
     if not match:
@@ -201,13 +209,14 @@ def _validate_bundle_architecture(path, arch, aapt_path=None):
 
 
 def validate_package(path, file_type, expected_version=None, aapt_path=None,
-                     expected_arch=None):
+                     expected_arch=None, expected_package=None):
     """Fail fast when the downloaded file is not what file_type claims.
 
     Catches the classic mistake of a bundle (.apkm) saved as .apk, which
     otherwise dies later inside the patcher with a cryptic NPE. When
     ``expected_arch`` is ``universal``, both ARM ABIs are mandatory unless the
-    package has no native code at all.
+    package has no native code at all. ``expected_package`` additionally
+    verifies the aapt-reported package identity for manual mirror handoffs.
     Returns the number of zip entries.
     """
     file_type = str(file_type or "apk").lower().lstrip(".")
@@ -222,16 +231,22 @@ def validate_package(path, file_type, expected_version=None, aapt_path=None,
         apks = [n for n in names if n.endswith(".apk")]
         if not apks:
             raise RuntimeError(f"{path} is not a valid bundle (no APK entries inside)")
-        if expected_version is not None:
+        if expected_version is not None or expected_package is not None:
             candidate = next((n for n in apks if n == "base.apk"), apks[0])
             with tempfile.TemporaryDirectory() as td:
                 extracted = os.path.join(td, "base.apk")
                 with zipfile.ZipFile(path) as zf, open(extracted, "wb") as fh:
                     fh.write(zf.read(candidate))
-                detected = _apk_version(extracted, aapt_path)
-            if detected != expected_version:
-                raise RuntimeError(
-                    f"{path} contains APK version {detected}, expected {expected_version}")
+                if expected_version is not None:
+                    detected = _apk_version(extracted, aapt_path)
+                    if detected != expected_version:
+                        raise RuntimeError(
+                            f"{path} contains APK version {detected}, expected {expected_version}")
+                if expected_package is not None:
+                    detected_package = _apk_package(extracted, aapt_path)
+                    if detected_package != expected_package:
+                        raise RuntimeError(
+                            f"{path} contains package {detected_package}, expected {expected_package}")
     else:
         if "AndroidManifest.xml" not in names:
             raise RuntimeError(
@@ -242,6 +257,11 @@ def validate_package(path, file_type, expected_version=None, aapt_path=None,
             if detected != expected_version:
                 raise RuntimeError(
                     f"{path} version {detected} != expected {expected_version}")
+        if expected_package is not None:
+            detected_package = _apk_package(path, aapt_path)
+            if detected_package != expected_package:
+                raise RuntimeError(
+                    f"{path} package {detected_package} != expected {expected_package}")
     if expected_arch:
         if file_type in ("apkm", "xapk", "apks"):
             _validate_bundle_architecture(path, expected_arch, aapt_path)

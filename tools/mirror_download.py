@@ -368,6 +368,7 @@ def main():
                 mirror_type,
                 expected_version=args.exact_version,
                 expected_arch=args.arch,
+                expected_package=cfg["package"],
             )
             os.replace(tmp, output)
             print(f"OK {output}: source={kind}, version={version}")

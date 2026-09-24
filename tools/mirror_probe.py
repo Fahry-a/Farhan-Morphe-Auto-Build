@@ -240,6 +240,7 @@ def probe_target(
             expected_version=version,
             aapt_path=_aapt_path(aapt_path),
             expected_arch=target.arch,
+            expected_package=target.package,
         )
         succeeded = True
         return ProbeResult(
@@ -459,6 +460,7 @@ def _probe_with_downloader(
         entries = validate_package(
             str(output), target.file_type, expected_version=version,
             aapt_path=_aapt_path(aapt_path), expected_arch=target.arch,
+            expected_package=target.package,
         )
         succeeded = True
         return ProbeResult(
