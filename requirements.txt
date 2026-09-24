@@ -2,4 +2,4 @@ beautifulsoup4==4.15.0
 curl_cffi==0.16.3
 playwright==1.63.0
 invisible-playwright==0.25.5
-apkd @ git+https://github.com/Fahry-a/apkd@dca03d6820f9629c95ed3a2fa096483375fa53fd
+apkd @ git+https://github.com/Fahry-a/apkd@3f0ef4a9ba1ca1733e8a4824ed47ce8449da1ebc
