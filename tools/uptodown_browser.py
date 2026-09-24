@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"OK provider={artifact.provider} version={artifact.version} "
-        f"file={args.output} entries={entries} url={artifact.url}"
+        f"file={output} entries={entries} url={artifact.url}"
     )
     return 0
 
