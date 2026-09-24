@@ -70,10 +70,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         artifact = provider.resolve_request(request)
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        provider.download(artifact, args.output)
+        output = args.output
+        if output.suffix.lower() != artifact.extension.lower():
+            output = output.with_suffix(artifact.extension)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        provider.download(artifact, output)
         entries = validate_package(
-            str(args.output),
+            str(output),
             artifact.extension.lstrip("."),
             expected_version=args.version,
             expected_arch=args.arch,
