@@ -24,11 +24,6 @@
       {
         "type": "aptoide"
       }
-    ],
-    "archs": [
-      {
-        "name": "universal"
-      }
     ]
   },
   "patch_bundle": {

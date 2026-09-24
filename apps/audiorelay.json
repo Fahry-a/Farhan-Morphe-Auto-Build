@@ -22,11 +22,6 @@
         "type": "aptoide",
         "file_type": "apk"
       }
-    ],
-    "archs": [
-      {
-        "name": "universal"
-      }
     ]
   },
   "patch_bundle": {

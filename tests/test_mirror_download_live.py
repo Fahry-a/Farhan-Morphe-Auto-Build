@@ -1,69 +1,43 @@
-import json
+"""Opt-in network regression for every configured mirror target.
+
+The normal unit suite skips this module.  GitHub Actions uses
+``tools/mirror_probe.py`` directly for per-target matrix jobs, but keeping this
+entry point makes the complete audit easy to run locally as well.
+"""
 import os
 import shutil
-import tempfile
-import traceback
 import unittest
 
-from tools.common import validate_package
-from tools.mirror_download import download_from_mirror
+from tools.mirror_probe import discover_targets, run_audit
 
 
 class LiveMirrorDownloadTests(unittest.TestCase):
-    CONFIG = "apps/audiorelay.json"
-    VERSION = "0.26.1"
-    ARCH = "universal"
-
     @classmethod
     def setUpClass(cls):
         if os.environ.get("RUN_LIVE_MIRROR_TESTS") != "1":
             raise unittest.SkipTest(
                 "set RUN_LIVE_MIRROR_TESTS=1 to run network-backed mirror tests"
             )
-        with open(cls.CONFIG) as fh:
-            cls.config = json.load(fh)
         cls.aapt = os.environ.get("AAPT") or shutil.which("aapt")
         if not cls.aapt:
-            raise unittest.SkipTest("aapt is required for exact APK version validation")
+            raise unittest.SkipTest("aapt is required for exact package validation")
+        cls.targets = discover_targets("apps")
+        if not cls.targets:
+            raise unittest.SkipTest("no enabled mirror targets found")
 
-    def test_each_configured_mirror_downloads_exact_version(self):
-        mirrors = self.config["source"]["mirrors"]
-        self.assertEqual(
-            [m["type"] for m in mirrors],
-            ["apkpure", "apkcombo", "aptoide"],
+    def test_every_configured_mirror_downloads_exact_version(self):
+        results, _ = run_audit(
+            self.targets,
+            aapt_path=self.aapt,
+            timeout=float(os.environ.get("MIRROR_TIMEOUT", "60")),
         )
-
-        failures = []
-        for mirror in mirrors:
-            kind = mirror["type"]
-            with self.subTest(mirror=kind):
-                with tempfile.TemporaryDirectory() as td:
-                    output = os.path.join(td, f"{kind}.apk")
-                    try:
-                        version = download_from_mirror(
-                            kind, self.config, self.ARCH, self.VERSION, output
-                        )
-                        self.assertEqual(version, self.VERSION)
-                        entries = validate_package(
-                            output,
-                            "apk",
-                            expected_version=self.VERSION,
-                            aapt_path=self.aapt,
-                        )
-                        self.assertGreater(entries, 0)
-                        size = os.path.getsize(output)
-                        self.assertGreater(size, 1_000_000)
-                        print(
-                            f"OK mirror={kind} version={version} "
-                            f"file={output} size={size} bytes "
-                            f"({size / 1_000_000:.2f} MB) entries={entries}"
-                        )
-                    except Exception as exc:
-                        tb = traceback.format_exc(limit=8)
-                        failures.append(f"{kind}: {exc}\n{tb}")
-
-        if failures:
-            self.fail("Live mirror failures:\n" + "\n".join(failures))
+        failures = [
+            f"{result.target.app}/{result.target.arch}/{result.target.mirror}: "
+            f"{result.error}"
+            for result in results
+            if result.status != "pass"
+        ]
+        self.assertFalse(failures, "Live mirror failures:\n" + "\n".join(failures))
 
 
 if __name__ == "__main__":

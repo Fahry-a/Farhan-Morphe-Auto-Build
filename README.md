@@ -13,7 +13,9 @@ Configuration-driven GitHub Actions automation for building Morphe-patched Andro
 | Brave Browser | com.brave.browser | kveld9/kveld-morphe-patches | GitHub | ARM64, ARM32 | Default |
 | AudioRelay | com.azefsw.audioconnect | kiraio-moe/Lain-Patches | APKPure → APKCombo → Aptoide | Universal | Default |
 | Native Camera | com.rawcam.app | WaggBR/Wagg13Patch_Morphe | APKPure → APKCombo → Aptoide | Universal | Default |
-| Pinterest | com.pinterest | browzomje/browzomje-patches | APKPure → APKCombo → Aptoide | Universal | Default |
+| Pinterest | com.pinterest | browzomje/browzomje-patches | APKMirror → APKCombo → APKPure → Aptoide | Universal | Default |
+| Advanced Download Manager | com.dv.adm | arandomhooman/hoomans-morphe-patches | APKMirror → APKPure → APKCombo → Aptoide | Universal | Default |
+| X / Twitter | com.twitter.android | crimera/piko | APKMirror → APKPure → APKCombo → Aptoide | Universal | Default |
 
 Brave assets:
 
@@ -39,6 +41,8 @@ configuration
 The workflow does not accept an arbitrary application-version override. The application version is selected from versions supported by the selected Morphe patch.
 
 Mirror sources can define a package type per mirror. A mirror-level `file_type` overrides the source-level value; if neither is set, `apk` is used. This allows configurations where one mirror provides XAPK while another provides APK for the same application.
+
+`arch: universal` is strict: the selected package must contain both `arm64-v8a` and `armeabi-v7a` (or be architecture-independent). An arm64-only or arm32-only asset is rejected instead of being mislabeled as universal. Mirror-backed app configs do not need a manual `source.archs` list; the universal contract is implicit.
 
 ## Manual workflow
 
@@ -77,6 +81,34 @@ Run tests:
 python -m unittest discover -s tests -v
 ~~~
 
+### Live mirror audit
+
+The build uses the first healthy mirror, while the live audit tests **every
+configured mirror independently**. It discovers only `source.type: mirrors`
+applications from `apps/*.json`, resolves the version supported by each app's
+Morphe patch, downloads the real artifact, validates its package type, exact
+`aapt` version and universal ARM coverage, and writes a JSON report.
+
+~~~bash
+# All mirror entries in every mirror-backed app
+python tools/mirror_probe.py --report mirror-report.json
+
+# One target, useful while debugging a provider
+python tools/mirror_probe.py \
+  --config apps/pinterest.json --app pinterest \
+  --arch universal --mirror apkcombo
+
+# Keep the downloaded files for inspection (otherwise they are temporary)
+python tools/mirror_probe.py --app adm --download-dir /tmp/morphe-mirror-audit
+~~~
+
+The command exits non-zero if any selected mirror fails, while still reporting
+all other results. The `Live Mirror Downloads` workflow runs on relevant
+pushes, weekly on a schedule, and manually from GitHub Actions. Its matrix is
+generated from configuration, so a new mirror-backed app is included without a
+workflow edit. Each matrix job uploads its JSON/log report even when the
+provider fails.
+
 ## Documentation
 
 See the detailed contributor and architecture guide:
@@ -102,6 +134,7 @@ Do not commit APKs, keystores, credentials or other release secrets.
 ~~~text
 apps/       Application configuration
 tools/      Generic build/download/patch/release logic
+             (including the config-driven mirror probe)
 tests/      Unit and regression tests
 docs/       Detailed project documentation
 .github/    GitHub Actions workflows and repository automation

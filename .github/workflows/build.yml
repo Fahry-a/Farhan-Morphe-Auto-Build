@@ -15,7 +15,7 @@ on:
         default: 'all'
         type: string
       arch:
-        description: 'Arch name (all, or e.g. arm64)'
+        description: 'Architecture (all, universal for mirror apps, or e.g. arm64 for Brave)'
         required: false
         default: 'all'
         type: string
@@ -81,6 +81,7 @@ jobs:
         run: |
           MATRIX=$(python3 -c "
           import glob, json, os
+          from tools.common import source_architecture_entries
           only_app = os.environ.get('ONLY_APP') or 'all'
           only_arch = os.environ.get('ONLY_ARCH') or 'all'
           pairs = []
@@ -90,7 +91,7 @@ jobs:
                   continue
               if only_app != 'all' and cfg['id'] != only_app:
                   continue
-              for arch in cfg['source'].get('archs', []):
+              for arch in source_architecture_entries(cfg['source']):
                   if only_arch != 'all' and arch['name'] != only_arch:
                       continue
                   pairs.append({'app': cfg['id'], 'arch': arch['name'], 'config': path})
@@ -219,11 +220,10 @@ jobs:
           FILE_TYPE=$(python3 -c "import json; print(json.load(open('${{ matrix.config }}'))['source'].get('file_type', 'apk'))")
           case "$FILE_TYPE" in
             apkm) BASE_FILE="base.apkm" ;;
+            apks) BASE_FILE="base.apks" ;;
             xapk) BASE_FILE="base.xapk" ;;
             *) BASE_FILE="base.apk" ;;
           esac
-          echo "base_file=$BASE_FILE" >> $GITHUB_OUTPUT
-          echo "file_type=$FILE_TYPE" >> $GITHUB_OUTPUT
           if [ -n "$DIRECT_APK_URL" ]; then
             echo "Using manual direct APK URL"
             BASE_FILE="$BASE_FILE" python3 - <<'PY'
@@ -264,6 +264,10 @@ jobs:
           else
             echo "Unknown source.type: $TYPE"; exit 1
           fi
+          if [ "$TYPE" != "mirrors" ] || [ -n "$DIRECT_APK_URL" ]; then
+            echo "base_file=$BASE_FILE" >> "$GITHUB_OUTPUT"
+            echo "file_type=$FILE_TYPE" >> "$GITHUB_OUTPUT"
+          fi
           ls -lh base.*
           echo "::notice title=Base package ready::$BASE_FILE"
           echo "::endgroup::"
@@ -275,6 +279,7 @@ jobs:
           BASE_FILE="${{ steps.download.outputs.base_file }}" \
           FILE_TYPE="${{ steps.download.outputs.file_type }}" \
           APK_VERSION="${{ steps.resolve.outputs.apk_version }}" \
+          ARCH="${{ matrix.arch }}" \
           python3 - <<'PY'
           import os
           from tools.common import validate_package
@@ -282,6 +287,7 @@ jobs:
               os.environ["BASE_FILE"],
               os.environ["FILE_TYPE"],
               expected_version=os.environ["APK_VERSION"],
+              expected_arch=os.environ["ARCH"],
           )
           print(f'Validated {os.environ["BASE_FILE"]}: {entries} ZIP entries')
           PY

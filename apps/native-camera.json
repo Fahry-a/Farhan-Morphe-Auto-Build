@@ -22,11 +22,6 @@
         "type": "aptoide",
         "file_type": "xapk"
       }
-    ],
-    "archs": [
-      {
-        "name": "universal"
-      }
     ]
   },
   "patch_bundle": {

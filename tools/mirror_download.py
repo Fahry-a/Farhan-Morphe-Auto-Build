@@ -4,7 +4,9 @@
 Thin wrapper around https://github.com/Fahry-a/apkd. Each configured
 mirror maps 1:1 to an apkd provider (apkpure, aptoide, apkcombo,
 apkmirror). Exact-version + package validation still happens here via
-tools.common.validate_package before a .partial file is promoted.
+tools.common.validate_package before a .partial file is promoted. A
+mirror-level file_type override also selects the final extension/path, so
+bundle bytes are never published under an APK filename.
 """
 import argparse
 import json
@@ -103,48 +105,79 @@ def _mirror_entry(cfg, kind):
     )
 
 
-def _build_request(package, version, arch, prefer_xapk, dpi=None, min_sdk=None):
+def _build_request(package, version, arch, prefer_xapk, dpi=None, min_sdk=None,
+                   timeout=30.0, app_slug=None):
+    from dataclasses import fields
     from apkd.models import DownloadRequest
 
-    return DownloadRequest(
-        package=package,
-        version=version,
-        arch=arch,
-        dpi=dpi,
-        min_sdk=min_sdk,
-        prefer_xapk=prefer_xapk,
+    values = {
+        "package": package,
+        "version": version,
+        "arch": arch,
+        "dpi": dpi,
+        "min_sdk": min_sdk,
+        "prefer_xapk": prefer_xapk,
+        "timeout": timeout,
+    }
+    # Keep the wrapper compatible with the currently pinned apkd release while
+    # allowing a newer provider release to use the optional page hint.
+    if app_slug and any(field.name == "app_slug" for field in fields(DownloadRequest)):
+        values["app_slug"] = app_slug
+    return DownloadRequest(**values)
+
+
+def _effective_arch(cfg, kind, arch):
+    """Resolve a provider architecture hint without weakening ``universal``.
+
+    ``universal`` is a contract: the selected artifact must support both ARM
+    ABIs (arm64-v8a and armeabi-v7a).  A provider-specific ABI override is only
+    allowed for a concrete matrix architecture; it must never silently turn a
+    universal job into an arm64-only or arm32-only build.
+    """
+    from apkd.providers.base import normalize_arch
+
+    normalized = (normalize_arch(arch) or "universal").lower()
+    if normalized in ("universal", "noarch"):
+        return "universal"
+    mirror = _mirror_entry(cfg, kind)
+    source = cfg.get("source", {})
+    return (
+        mirror.get("arch")
+        or mirror.get("mirror_arch")
+        or source.get("default_arch")
+        or arch
     )
 
 
 def _apkmirror_request_params(cfg, mirror, arch):
     """Resolve (arch, dpi, min_sdk) hints for an apkmirror mirror entry.
 
-    Optional per-mirror overrides (``arch``/``dpi``/``min_sdk``) win over
-    the matrix arch. dpi defaults to ``"*"`` (any density): APKMirror
+    Optional per-mirror overrides (``arch``/``dpi``/``min_sdk``) win for a
+    concrete matrix architecture. A universal matrix entry always stays
+    universal. dpi defaults to ``"*"`` (any density): APKMirror
     variants are usually density-scoped (e.g. ``120-640dpi``), so the old
     ``nodpi``-only default filtered out every row.
     """
+    from apkd.providers.base import normalize_arch
+
+    requested = (normalize_arch(arch) or "universal").lower()
+    effective = arch if requested in ("universal", "noarch") else (
+        mirror.get("arch") or arch
+    )
     return (
-        mirror.get("arch") or arch,
+        effective,
         mirror.get("dpi") or "*",
         mirror.get("min_sdk"),
     )
 
 
 def _arch_candidates(arch):
-    """Arch values to try in order for apkmirror variant filtering.
+    """Return provider filter values without downgrading universal.
 
-    apkd already falls back from a concrete ABI to universal rows, but not
-    the other way round: a ``universal`` matrix arch never matches
-    ABI-scoped rows, so retry once with arm64-v8a (which itself falls back
-    to universal rows inside apkd).
+    A concrete ABI may fall back to a universal provider row, but a universal
+    matrix entry must never fall back to an arm64-only row.
     """
-    from apkd.providers.base import normalize_arch
-
-    candidates = [arch]
-    if (normalize_arch(arch) or "universal") in ("universal", "noarch"):
-        candidates.append("arm64-v8a")
-    return candidates
+    return [arch]
 
 
 _EXTENSION_FILE_TYPES = {
@@ -155,6 +188,41 @@ _EXTENSION_FILE_TYPES = {
 }
 
 
+def _file_type_matches(actual, expected):
+    """Allow equivalent bundle containers while keeping APK strict.
+
+    Providers do not agree whether a split release is labelled XAPK or APKM.
+    Both contain APK entries and are consumed by the same bundle-aware
+    validator, so rejecting the equivalent label creates false mirror failures.
+    A monolithic APK is never treated as a bundle (or vice versa).
+    """
+    if not actual or not expected:
+        return False
+    actual = str(actual).lower().lstrip(".")
+    expected = str(expected).lower().lstrip(".")
+    return actual == expected or (
+        actual in _BUNDLE_FILE_TYPES and expected in _BUNDLE_FILE_TYPES
+    )
+
+
+def _output_for_type(output: str | Path, file_type: str) -> Path:
+    """Give a mirror result a path matching its declared container type.
+
+    A source-level ``file_type`` is only a default.  A mirror may explicitly
+    publish a different container (for example XAPK while the source default
+    is APK), so writing those bytes to ``base.apk`` would make the later
+    validator and patcher guess from a misleading extension.
+    """
+    normalized = str(file_type or "apk").lower().lstrip(".")
+    if normalized not in {"apk", "apkm", "apks", "xapk"}:
+        raise ValueError(f"unsupported package file_type {file_type!r}")
+    path = Path(output)
+    suffix = f".{normalized}"
+    if path.suffix.lower() == suffix:
+        return path
+    return path.with_suffix(suffix)
+
+
 def _get_provider(kind, slug_map=None):
     from apkd.providers import get_provider
 
@@ -163,8 +231,12 @@ def _get_provider(kind, slug_map=None):
     return get_provider(kind)
 
 
-def download_from_mirror(kind, cfg, arch, version, output):
-    """Resolve exact version via apkd and download it to output."""
+def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
+    """Resolve exact version via apkd and download it to output.
+
+    ``timeout`` is part of the request rather than a process-level setting, so
+    the same helper is useful for both CI jobs and long-running local audits.
+    """
     normalized = str(kind or "").lower()
     if normalized == "uptodown":
         raise RuntimeError(
@@ -175,7 +247,17 @@ def download_from_mirror(kind, cfg, arch, version, output):
         raise RuntimeError(f"Unsupported mirror: {kind}")
 
     package = cfg["package"]
+    source = cfg.get("source", {})
+    if source.get("type") == "mirrors":
+        requested_arch = str(arch or "universal").strip().lower().replace("_", "-")
+        if requested_arch != "universal":
+            raise RuntimeError(
+                "mirror sources support only the universal architecture; "
+                f"requested {arch}"
+            )
+        arch = "universal"
     prefer_xapk = _prefer_xapk(cfg, normalized)
+    effective_arch = _effective_arch(cfg, normalized, arch)
 
     try:
         from apkd.models import DownloadRequest  # noqa: F401 (import check)
@@ -190,13 +272,17 @@ def download_from_mirror(kind, cfg, arch, version, output):
             "pip install 'apkd @ git+https://github.com/Fahry-a/apkd'"
         ) from exc
 
+    mirror_config = _mirror_entry(cfg, normalized)
+    app_slug = mirror_config.get("slug") or mirror_config.get("name")
+
     if normalized == "apkmirror":
-        mirror = _mirror_entry(cfg, normalized)
-        _, dpi, min_sdk = _apkmirror_request_params(cfg, mirror, arch)
+        mirror = mirror_config
+        _, dpi, min_sdk = _apkmirror_request_params(cfg, mirror, effective_arch)
         errors = []
-        for candidate in _arch_candidates(mirror.get("arch") or arch):
+        for candidate in _arch_candidates(effective_arch):
             request = _build_request(package, version, candidate, prefer_xapk,
-                                     dpi=dpi, min_sdk=min_sdk)
+                                     dpi=dpi, min_sdk=min_sdk, timeout=timeout,
+                                     app_slug=app_slug)
             try:
                 artifact = provider.resolve_request(request)
             except Exception as exc:
@@ -219,7 +305,8 @@ def download_from_mirror(kind, cfg, arch, version, output):
                 + "; ".join(errors)
             )
     else:
-        request = _build_request(package, version, arch, prefer_xapk)
+        request = _build_request(package, version, effective_arch, prefer_xapk,
+                                 timeout=timeout, app_slug=app_slug)
         try:
             artifact = provider.resolve_request(request)
         except ImportError:
@@ -237,7 +324,7 @@ def download_from_mirror(kind, cfg, arch, version, output):
 
     actual = _EXTENSION_FILE_TYPES.get(str(artifact.extension or "").lower())
     expected = str(mirror_file_type(cfg, normalized) or "apk").lower()
-    if actual is not None and actual != expected:
+    if not _file_type_matches(actual, expected):
         raise RuntimeError(
             f"{normalized} returned {artifact.extension} ({artifact.extra.get('variant_type', 'bundle')}) "
             f"for {package} {artifact.version}, but config expects file_type={expected}; "
@@ -265,32 +352,42 @@ def main():
 
     errors = []
     for mirror in cfg["source"].get("mirrors", []):
+        if mirror.get("enabled", True) is False:
+            continue
         kind = mirror["type"]
-        tmp = f"{args.output}.partial"
+        mirror_type = str(mirror_file_type(cfg, kind) or "apk").lower().lstrip(".")
+        tmp = None
         try:
+            output = _output_for_type(args.output, mirror_type)
+            tmp = f"{output}.partial"
+            Path(tmp).unlink(missing_ok=True)
+            output.unlink(missing_ok=True)
             print(f"== Trying {kind} for {cfg['package']} {args.exact_version} ==")
             version = download_from_mirror(kind, cfg, args.arch,
                                            args.exact_version, tmp)
             validate_package(
                 tmp,
-                mirror_file_type(cfg, kind),
+                mirror_type,
                 expected_version=args.exact_version,
+                expected_arch=args.arch,
             )
-            os.replace(tmp, args.output)
-            print(f"OK {args.output}: source={kind}, version={version}")
+            os.replace(tmp, output)
+            print(f"OK {output}: source={kind}, version={version}")
             if "GITHUB_OUTPUT" in os.environ:
-                with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
                     fh.write(f"apk_version={args.exact_version}\n")
-                    fh.write(f"base_file={args.output}\n")
+                    fh.write(f"base_file={output}\n")
+                    fh.write(f"file_type={mirror_type}\n")
                     fh.write(f"download_source={kind}\n")
             return
         except Exception as exc:
             errors.append(f"{kind}: {exc}")
             print(f"FAILED {kind}: {exc}", file=sys.stderr)
-            try:
-                Path(tmp).unlink()
-            except FileNotFoundError:
-                pass
+            if tmp is not None:
+                try:
+                    Path(tmp).unlink()
+                except FileNotFoundError:
+                    pass
 
     print("All configured APK mirrors failed:", file=sys.stderr)
     for error in errors:

@@ -2,18 +2,71 @@ name: Live Mirror Downloads
 
 on:
   push:
-    paths: ['tools/**', 'tests/**', 'github/workflows/live-mirror-downloads.yml', 'requirements.txt']
-  workflow_dispatch:
+    paths:
+      - 'apps/**'
+      - 'tools/**'
+      - 'tests/**'
+      - '.github/workflows/live-mirror-downloads.yml'
+      - 'requirements.txt'
   schedule:
+    # Weekly provider/source audit (Monday 02:30 UTC).
     - cron: '30 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App id, comma-separated ids, or all'
+        required: false
+        default: 'all'
+        type: string
+      mirror:
+        description: 'Provider name, comma-separated names, or all'
+        required: false
+        default: 'all'
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: live-mirror-downloads
+  cancel-in-progress: true
+
 jobs:
-  mirror-downloads:
-    name: Live mirror validation
+  discover:
+    name: Discover mirror matrix
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - id: matrix
+        env:
+          APP: ${{ inputs.app || 'all' }}
+          MIRROR: ${{ inputs.mirror || 'all' }}
+        run: |
+          set -euo pipefail
+          matrix="$(python3 tools/mirror_probe.py --matrix --app "$APP" --mirror "$MIRROR")"
+          echo "Discovered mirror targets: $matrix"
+          if [ "$matrix" = "[]" ]; then
+            echo "::error::No enabled mirror target matched the requested filters."
+            exit 1
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: ${{ matrix.app }} / ${{ matrix.arch }} / ${{ matrix.mirror }}
+    needs: discover
+    if: needs.discover.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -24,16 +77,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: requirements.txt
       - name: Install dependencies
-        run: |
-          echo "::group::Install dependencies"
-          uv pip install --system -r requirements.txt
-          echo "::notice title=Dependencies ready::Live mirror test environment installed."
-          echo "::endgroup::"
+        run: uv pip install --system -r requirements.txt
       - name: Locate Android aapt
         id: aapt
         run: |
-          echo "::group::Locate Android aapt"
-          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt -perm -111 | sort -V | tail -n 1 || true)"
+          set -euo pipefail
+          AAPT="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name aapt -perm -111 2>/dev/null | sort -V | tail -n 1 || true)"
           if [ -z "$AAPT" ]; then
             sudo apt-get update
             sudo apt-get install -y aapt
@@ -41,37 +90,33 @@ jobs:
           fi
           test -x "$AAPT"
           echo "path=$AAPT" >> "$GITHUB_OUTPUT"
-          echo "::notice title=aapt ready::$AAPT"
-          echo "::endgroup::"
-      - name: Download and validate every AudioRelay mirror
+      - name: Download and validate exact mirror package
         env:
-          RUN_LIVE_MIRROR_TESTS: '1'
           AAPT: ${{ steps.aapt.outputs.path }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
+          MIRROR: ${{ matrix.mirror }}
+          CONFIG: ${{ matrix.config }}
         run: |
-          echo "::group::Validate every configured AudioRelay mirror"
           set -o pipefail
           set +e
-          python -m unittest tests.test_mirror_download_live -v 2>&1 | tee mirror-output.log
+          python3 tools/mirror_probe.py \
+            --config "$CONFIG" \
+            --app "$APP" \
+            --arch "$ARCH" \
+            --mirror "$MIRROR" \
+            --report "mirror-report-$APP-$ARCH-$MIRROR.json" \
+            2>&1 | tee "mirror-output-$APP-$ARCH-$MIRROR.log"
           status=${PIPESTATUS[0]}
           set -e
-          echo "::endgroup::"
-          {
-            echo "### Live mirror validation"
-            echo
-            if [ "$status" -eq 0 ]; then
-              echo "Result: **PASS**"
-            else
-              echo "Result: **FAIL**"
-            fi
-            echo
-            echo "| Mirror result |"
-            echo "| --- |"
-            grep '^OK mirror=' mirror-output.log | sed 's/^/| /' || true
-            grep -E 'Ran [0-9]+ tests|^OK$|^FAILED' mirror-output.log || true
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$status" -eq 0 ]; then
-            echo "::notice title=All mirrors passed::Every configured mirror downloaded and validated the exact version."
-          else
-            echo "::error title=Mirror validation failed::One or more mirror checks failed. See the grouped test output above."
-            exit "$status"
-          fi
+          exit "$status"
+      - name: Upload mirror audit report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mirror-report-${{ matrix.app }}-${{ matrix.arch }}-${{ matrix.mirror }}
+          path: |
+            mirror-report-${{ matrix.app }}-${{ matrix.arch }}-${{ matrix.mirror }}.json
+            mirror-output-${{ matrix.app }}-${{ matrix.arch }}-${{ matrix.mirror }}.log
+          if-no-files-found: warn

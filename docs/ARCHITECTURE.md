@@ -11,7 +11,7 @@ The intended flow is:
 ~~~text
 apps/*.json
     ↓
-app × architecture matrix
+app × source architecture (mirror apps default to universal)
     ↓
 resolve Morphe patch + supported APK version
     ↓
@@ -56,6 +56,7 @@ tools/
   resolve_version.py    Morphe target selection
   apkmirror.py          APKMirror downloader
   mirror_download.py    apkd-backed mirror fallback (apkmirror/apkpure/apkcombo/aptoide)
+  mirror_probe.py       Config-driven live audit for every mirror entry
   github_source.py      GitHub Release downloader
   direct.py             Direct URL downloader
   patch.py              Morphe invocation + manifest
@@ -149,9 +150,32 @@ arm32 → armeabi-v7a → BraveMonoarm.apk
 
 ARM32 is a first-class target. Do not remove it when modifying the Brave configuration or workflow.
 
+### Universal contract
+
+`arch: universal` means **both** ARM targets in the same downloaded artifact:
+
+~~~text
+arm64-v8a + armeabi-v7a
+~~~
+
+It does not mean "prefer arm64" and it does not mean an arm64-only fallback.
+The downloader passes the universal request to the provider without replacing
+it with a single ABI. After download, `validate_package(..., expected_arch)`
+inspects `aapt dump badging` for an APK and every APK entry in an APKM/XAPK.
+The audit fails if either ARM ABI is missing. A package with no native code is
+architecture-independent and is accepted; extra ABIs such as x86_64 are fine.
+
+If a provider publishes separate arm64 and arm32 assets but no combined asset,
+that provider is **not** a valid universal mirror. Keep the failure visible and
+let another exact-version universal mirror handle the build; never relabel an
+arm64-only file as universal. Mirror-backed app configs do not declare a manual
+per-ABI matrix—the shared `universal` contract is implicit.
+
 ### Google Photos
 
-Google Photos currently uses a universal source entry covering the configured APKMirror variant.
+Google Photos uses the same implicit universal mirror contract as the other
+mirror-backed applications; the selected provider is responsible for supplying
+one combined exact-version artifact.
 
 ## 5. Source system
 
@@ -186,7 +210,8 @@ Every candidate is resolved at its exact version through the
 [apkd](https://github.com/Fahry-a/apkd) library
 (`apkd @ git+https://github.com/Fahry-a/apkd` in requirements.txt),
 downloaded to a temporary .partial file and validated before it becomes
-the final package.
+the final package. A `mirrors` source does not declare `source.archs`; its
+architecture contract is implicitly `universal`.
 
 ### APKMirror
 
@@ -200,7 +225,7 @@ variant page
   → package
 ~~~
 
-It normally uses curl_cffi and can use Playwright Chromium for browser-based Cloudflare handling.
+It normally uses curl_cffi and can use Playwright Chromium for browser-based Cloudflare handling. The native apkd mirror provider does not silently bypass a challenge: a `403`/Turnstile response is reported as `APKMirror Cloudflare/Turnstile challenge`, so the target can be completed manually in a browser and retried. A challenge is not evidence that the package lacks a universal ABI.
 
 Configuration normally supplies:
 
@@ -226,11 +251,12 @@ slug often differs from the repo slug: `x-` vs `twitter`,
 
 Optional per-mirror hints: `arch`, `dpi`, `min_sdk`. `dpi` defaults to
 `"any"` (APKMirror rows are usually density-scoped like `120-640dpi`, so
-`nodpi`-only would match nothing); a `universal` matrix arch is retried
-once as `arm64-v8a` when no universal row matches. When the exact version
-only ships as a bundle, the mirror fails with an explicit
-`expects file_type=` error instead of silently writing bundle bytes to an
-`.apk` output.
+`nodpi`-only would match nothing). The legacy standalone APKMirror source may
+use a concrete ABI override; the mirror dispatcher itself always keeps its
+implicit `universal` contract and never retries as `arm64-v8a`. When the exact
+version only ships as a bundle, the mirror must expose a compatible bundle
+container; APKM and XAPK are equivalent bundle labels, while an APK is not
+accepted for a bundle-only request.
 
 Bundle-sourced apps declare it at the source level instead — ADM and X use
 `"file_type": "apkm"`, so the base file is `base.apkm`, validation checks
@@ -265,6 +291,45 @@ with a migration hint if an old uptodown entry is still present.
 Aptoide is accessed through its public API.
 
 The downloader finds the requested vername, obtains the corresponding vercode, requests metadata and downloads the returned package path.
+
+### Live mirror audit
+
+The production fallback chain and the live audit have different jobs:
+
+~~~text
+production build:
+  configured order → first valid exact package → patch
+
+live audit:
+  every configured mirror → independent exact package download → report
+~~~
+
+`tools/mirror_probe.py` discovers mirror targets from `apps/*.json`; it does
+not contain an application allowlist. For each target it:
+
+1. Resolves the patch-supported version once per app.
+2. Calls the existing `download_from_mirror` implementation for that provider.
+3. Validates the configured package type, exact version and ARM contract with `aapt`.
+4. Records size, ZIP entries, SHA-256, duration and the error, if any.
+5. Removes temporary downloads after validation unless `--download-dir` is set.
+
+A provider failure does not prevent the remaining targets from being tested.
+The command exits non-zero after the complete run, so GitHub Actions shows a
+real provider regression instead of hiding it behind fallback. A mirror entry
+may set `enabled: false` when it is intentionally retained as documentation but
+must not be treated as an active build source or audit target.
+
+Run it with:
+
+~~~bash
+python tools/mirror_probe.py --report mirror-report.json
+python tools/mirror_probe.py --config apps/x.json --mirror apkcombo
+~~~
+
+The `Live Mirror Downloads` workflow builds its matrix from the same discovery
+function. It runs on configuration/tool/test/workflow changes, weekly on a
+schedule, and via `workflow_dispatch`; this makes adding a new mirror-backed
+application configuration-only from a CI perspective.
 
 ### Per-mirror package types
 
@@ -305,7 +370,7 @@ source.file_type
 apk
 ~~~
 
-The selected type is used both when choosing a mirror asset and when validating the downloaded package. This prevents a bundle such as XAPK from being treated as a monolithic APK.
+The selected type is used both when choosing a mirror asset and when validating the downloaded package. This prevents a bundle such as XAPK from being treated as a monolithic APK. The CLI writes the successful artifact to a path with the selected extension and publishes that actual `base_file`/`file_type` pair to GitHub Actions, so a mirror-level override remains consistent through patching.
 
 For example, a Pinterest configuration can explicitly document:
 
@@ -406,6 +471,7 @@ Validation checks:
 4. APKM/XAPK contains APK entries.
 5. Exact version can be read with aapt.
 6. Detected version equals the requested resolver version.
+7. Universal packages contain both arm64-v8a and armeabi-v7a.
 
 For a bundle, base.apk is preferred; otherwise the first APK entry is checked.
 
@@ -709,6 +775,7 @@ Tests cover:
 - patch target selection
 - experimental target selection
 - Aptoide exact-version lookup
+- configuration-driven mirror target discovery and independent live reports
 - stale release assets
 - cumulative release-note sections
 
@@ -716,6 +783,8 @@ Run:
 
 ~~~bash
 python -m unittest discover -s tests -v
+# network-backed; downloads every configured mirror target
+python tools/mirror_probe.py --report mirror-report.json
 ~~~
 
 When fixing a real bug, add a regression test before considering the fix complete.
@@ -819,6 +888,24 @@ Architectures: arm64, arm32
 arm64 → BraveMonoarm64.apk
 arm32 → BraveMonoarm.apk
 ~~~
+
+### Mirror-backed applications
+
+The remaining enabled applications are discovered from their JSON files and
+use the same mirror dispatcher:
+
+| Application | Package | Patch repository | Mirrors | Format |
+| --- | --- | --- | --- | --- |
+| AudioRelay | `com.azefsw.audioconnect` | `kiraio-moe/Lain-Patches` | APKPure → APKCombo → Aptoide | APK |
+| Native Camera | `com.rawcam.app` | `WaggBR/Wagg13Patch_Morphe` | APKPure → APKCombo → Aptoide | XAPK |
+| Pinterest | `com.pinterest` | `browzomje/browzomje-patches` | APKMirror → APKCombo → APKPure → Aptoide | APK |
+| Advanced Download Manager | `com.dv.adm` | `arandomhooman/hoomans-morphe-patches` | APKMirror → APKPure → APKCombo → Aptoide | APKM |
+| X / Twitter | `com.twitter.android` | `crimera/piko` | APKMirror → APKPure → APKCombo → Aptoide | APKM |
+
+All of these use `source.type: mirrors` and the implicit universal contract;
+they do not carry a hand-written per-ABI `source.archs` list. The live audit
+discovers them from the same files rather than maintaining a second hardcoded
+list.
 
 ## 23. Guiding principle
 

@@ -10,6 +10,8 @@ from tools.mirror_download import (
     _arch_candidates,
     _apkmirror_request_params,
     _derive_apkmirror_slug,
+    _effective_arch,
+    _output_for_type,
     _resolve_apkmirror_slug,
     _prefer_xapk,
     download_from_mirror,
@@ -57,6 +59,16 @@ class MirrorDownloaderTests(unittest.TestCase):
         self.assertEqual(mirror_file_type(cfg, "apkpure"), "xapk")
         self.assertEqual(mirror_file_type(cfg, "apkcombo"), "apk")
         self.assertEqual(mirror_file_type(cfg, "aptoide"), "apk")
+
+    def test_output_path_follows_mirror_file_type(self):
+        self.assertEqual(
+            _output_for_type("base.apk", "xapk"), Path("base.xapk")
+        )
+        self.assertEqual(
+            _output_for_type("base.xapk", "xapk"), Path("base.xapk")
+        )
+        with self.assertRaises(ValueError):
+            _output_for_type("base.apk", "zip")
 
     def test_prefer_xapk_follows_effective_file_type(self):
         cfg = _cfg([{"type": "apkpure", "file_type": "xapk"}])
@@ -141,6 +153,43 @@ class MirrorDownloaderTests(unittest.TestCase):
         fake, _, _ = self._run_provider("apkpure", file_type="xapk")
         self.assertTrue(fake.seen_request.prefer_xapk)
 
+    def test_mirror_download_main_publishes_actual_bundle_path(self):
+        import os
+        from unittest.mock import patch as mock_patch
+
+        from tools.mirror_download import main as mirror_main
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            config_path = root / "app.json"
+            config_path.write_text(
+                '{"id":"test","package":"com.example.test",'
+                '"source":{"type":"mirrors","file_type":"apk",'
+                '"mirrors":[{"type":"apkpure","file_type":"xapk"}]}}\n'
+            )
+            output = root / "base.apk"
+            github_output = root / "github-output"
+            def fake_download(kind, cfg, arch, version, destination, **kwargs):
+                del kind, cfg, arch, version, kwargs
+                Path(destination).write_bytes(b"bundle bytes")
+                return "1.2.3"
+
+            argv = [
+                "mirror_download.py", "--config", str(config_path),
+                "--arch", "universal", "--exact-version", "1.2.3",
+                "--output", str(output),
+            ]
+            with mock_patch("sys.argv", argv), \
+                 mock_patch("tools.mirror_download.download_from_mirror", fake_download), \
+                 mock_patch("tools.mirror_download.validate_package"), \
+                 mock_patch.dict(os.environ, {"GITHUB_OUTPUT": str(github_output)}):
+                mirror_main()
+
+            actual = root / "base.xapk"
+            self.assertTrue(actual.is_file())
+            self.assertIn(f"base_file={actual}", github_output.read_text())
+            self.assertIn("file_type=xapk", github_output.read_text())
+
     def test_download_from_mirror_apkcombo(self):
         self._run_provider("apkcombo")
 
@@ -169,24 +218,35 @@ class MirrorDownloaderTests(unittest.TestCase):
             self.assertEqual(fake.seen_request.dpi, "*")
             self.assertIsNone(fake.seen_request.min_sdk)
 
-    def test_apkmirror_request_params_prefer_mirror_overrides(self):
+    def test_effective_arch_never_downgrades_universal(self):
+        cfg = _cfg([{"type": "apkpure"}], archs=[{"name": "universal"}])
+        cfg["source"]["default_arch"] = "arm64-v8a"
+        cfg["source"]["mirrors"][0]["arch"] = "armeabi-v7a"
+        self.assertEqual(_effective_arch(cfg, "apkpure", "universal"), "universal")
+
+    def test_effective_arch_allows_override_for_concrete_arch(self):
+        cfg = _cfg([{"type": "apkpure", "arch": "armeabi-v7a"}],
+                   archs=[{"name": "arm64"}])
+        self.assertEqual(_effective_arch(cfg, "apkpure", "arm64"), "armeabi-v7a")
+
+    def test_apkmirror_request_params_do_not_override_universal(self):
         cfg = _cfg([{"type": "apkmirror", "arch": "arm64-v8a",
                      "dpi": "480dpi", "min_sdk": 28}])
         mirror = cfg["source"]["mirrors"][0]
         self.assertEqual(
             _apkmirror_request_params(cfg, mirror, "universal"),
-            ("arm64-v8a", "480dpi", 28),
+            ("universal", "480dpi", 28),
         )
         self.assertEqual(
             _apkmirror_request_params(cfg, {}, "universal"),
             ("universal", "*", None),
         )
 
-    def test_arch_candidates_retry_abi_for_universal(self):
-        self.assertEqual(_arch_candidates("universal"), ["universal", "arm64-v8a"])
+    def test_arch_candidates_do_not_downgrade_universal(self):
+        self.assertEqual(_arch_candidates("universal"), ["universal"])
         self.assertEqual(_arch_candidates("arm64"), ["arm64"])
 
-    def test_download_from_mirror_apkmirror_retries_arch(self):
+    def test_download_from_mirror_apkmirror_does_not_retry_universal_as_arm64(self):
         from apkd.models import ProviderError
 
         cfg = _cfg([{"type": "apkmirror", "org": "o", "repo": "r"}],
@@ -199,18 +259,16 @@ class MirrorDownloaderTests(unittest.TestCase):
         class FlakyProvider(FakeProvider):
             def resolve_request(self, request):
                 seen.append(request.arch)
-                if request.arch == "universal":
-                    raise ProviderError("no suitable variant", provider="apkmirror")
-                return super().resolve_request(request)
+                raise ProviderError("no suitable variant", provider="apkmirror")
 
         fake = FlakyProvider(artifact)
         with tempfile.TemporaryDirectory() as td:
             output = str(Path(td) / "out.apk")
             with patch("tools.mirror_download._get_provider", return_value=fake):
-                result = download_from_mirror(
-                    "apkmirror", cfg, "universal", "1.2.3", output)
-            self.assertEqual(result, "1.2.3")
-            self.assertEqual(seen, ["universal", "arm64-v8a"])
+                with self.assertRaisesRegex(RuntimeError, "arch=universal"):
+                    download_from_mirror(
+                        "apkmirror", cfg, "universal", "1.2.3", output)
+            self.assertEqual(seen, ["universal"])
 
     def test_download_from_mirror_rejects_bundle_for_apk_config(self):
         cfg = _cfg([{"type": "apkmirror", "org": "o", "repo": "r"}])
@@ -224,6 +282,25 @@ class MirrorDownloaderTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "expects file_type=apk"):
                     download_from_mirror(
                         "apkmirror", cfg, "universal", "1.2.3", output)
+
+    def test_download_from_mirror_accepts_equivalent_bundle_container(self):
+        cfg = _cfg(
+            [{"type": "apkcombo", "file_type": "apkm"}],
+            file_type="apkm",
+        )
+        artifact = Artifact(
+            "apkcombo", cfg["package"], "1.2.3",
+            "https://example.test/a.xapk", ".xapk", "universal",
+        )
+        fake = FakeProvider(artifact)
+        with tempfile.TemporaryDirectory() as td:
+            output = str(Path(td) / "out.apkm")
+            with patch("tools.mirror_download._get_provider", return_value=fake):
+                result = download_from_mirror(
+                    "apkcombo", cfg, "universal", "1.2.3", output
+                )
+            self.assertEqual(result, "1.2.3")
+            self.assertTrue(Path(output).is_file())
 
     def test_download_from_mirror_rejects_version_mismatch(self):
         with self.assertRaisesRegex(RuntimeError, "expected 1.2.3"):
@@ -239,6 +316,11 @@ class MirrorDownloaderTests(unittest.TestCase):
         cfg = _cfg([])
         with self.assertRaisesRegex(RuntimeError, "Unsupported mirror"):
             download_from_mirror("unknown", cfg, "universal", "1.2.3", "out.apk")
+
+    def test_download_from_mirror_rejects_concrete_arch(self):
+        cfg = _cfg([{"type": "apkpure"}])
+        with self.assertRaisesRegex(RuntimeError, "only the universal"):
+            download_from_mirror("apkpure", cfg, "arm64-v8a", "1.2.3", "out.apk")
 
 
 if __name__ == "__main__":
