@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 
 try:
+    from .apkmirror_browser import download_with_invisible_playwright
+    from .apkmirror_browser import env_bool as browser_env_bool
+    from .apkmirror_browser import env_float as browser_env_float
+except ImportError:  # pragma: no cover - direct ``python tools/...`` use
+    from apkmirror_browser import download_with_invisible_playwright
+    from apkmirror_browser import env_bool as browser_env_bool
+    from apkmirror_browser import env_float as browser_env_float
+
+try:
     from common import validate_package
 except ModuleNotFoundError:
     from tools.common import validate_package
@@ -225,6 +234,141 @@ def _output_for_type(output: str | Path, file_type: str) -> Path:
     return path.with_suffix(suffix)
 
 
+def _bool_setting(mirror, key, env_name, default=False):
+    if key in mirror:
+        value = mirror.get(key)
+    else:
+        value = os.getenv(env_name, "")
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _float_setting(mirror, key, env_name, default, minimum, maximum):
+    raw = mirror.get(key) if key in mirror else os.getenv(env_name, "")
+    try:
+        value = float(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _int_setting(mirror, key, env_name, default, minimum, maximum):
+    raw = mirror.get(key) if key in mirror else os.getenv(env_name, "")
+    try:
+        value = int(raw) if raw not in (None, "") else default
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _apkmirror_browser_requested(mirror):
+    """Return whether this APKMirror entry opted into the local browser path."""
+    if "browser" in mirror:
+        value = mirror.get("browser")
+    else:
+        value = os.getenv("APKMIRROR_BROWSER", "")
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {
+        "1", "true", "yes", "on", "invisible", "invisible_playwright",
+        "invisible-playwright",
+    }
+
+
+def _browser_allowed_in_ci():
+    if not browser_env_bool("CI"):
+        return True
+    # GitHub Actions has no interactive operator.  Keep the browser transport
+    # opt-in for CI even if an app config selects it locally.
+    return browser_env_bool("APKMIRROR_BROWSER_ALLOW_CI")
+
+
+def _render_browser_page_url(mirror, version, package=None):
+    template = (
+        mirror.get("browser_page_url")
+        or mirror.get("browser_variant_url")
+        or os.getenv("APKMIRROR_BROWSER_PAGE_URL", "")
+    )
+    if not template:
+        return None
+    text = str(template)
+    replacements = {
+        "{version}": str(version or ""),
+        "{version_dashes}": str(version or "").replace(".", "-"),
+        "{package}": str(package or ""),
+    }
+    for marker, value in replacements.items():
+        text = text.replace(marker, value)
+    if not text.startswith("https://"):
+        raise RuntimeError("APKMirror browser_page_url must use https://")
+    if "apkmirror.com" not in text:
+        raise RuntimeError("APKMirror browser_page_url must point to apkmirror.com")
+    return text
+
+
+def _browser_file_extension(file_type):
+    return "." + str(file_type or "apk").lower().lstrip(".")
+
+
+def _download_apkmirror_browser(mirror, cfg, version, arch, output, file_type):
+    page_url = _render_browser_page_url(mirror, version, cfg.get("package"))
+    if not page_url:
+        raise RuntimeError(
+            "APKMirror browser mode requires browser_page_url or "
+            "APKMIRROR_BROWSER_PAGE_URL"
+        )
+    headless = _bool_setting(
+        mirror, "browser_headless", "APKMIRROR_BROWSER_HEADLESS", False
+    )
+    profile_dir = mirror.get("browser_profile_dir") or os.getenv(
+        "APKMIRROR_BROWSER_PROFILE_DIR", ""
+    )
+    seed_raw = mirror.get("browser_seed", os.getenv("APKMIRROR_BROWSER_SEED", ""))
+    try:
+        seed = int(seed_raw) if seed_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        seed = None
+    initial_wait = _float_setting(
+        mirror, "browser_initial_wait", "APKMIRROR_BROWSER_INITIAL_WAIT", 45.0, 0.0, 300.0
+    )
+    page_timeout = _float_setting(
+        mirror, "browser_page_timeout", "APKMIRROR_BROWSER_PAGE_TIMEOUT", 60.0, 10.0, 300.0
+    )
+    download_timeout = _float_setting(
+        mirror, "browser_download_timeout", "APKMIRROR_BROWSER_DOWNLOAD_TIMEOUT", 420.0, 30.0, 1800.0
+    )
+    poll_interval = _float_setting(
+        mirror, "browser_poll_interval", "APKMIRROR_BROWSER_POLL_INTERVAL", 4.0, 0.1, 30.0
+    )
+    humanize = _bool_setting(
+        mirror, "browser_humanize", "APKMIRROR_BROWSER_HUMANIZE", True
+    )
+    close_vignette = _bool_setting(
+        mirror, "browser_close_vignette", "APKMIRROR_BROWSER_CLOSE_VIGNETTE", True
+    )
+    print(
+        f"[APKMirror] invisible_playwright browser mode: {page_url} "
+        f"(headless={headless}, wait={initial_wait:g}s, timeout={download_timeout:g}s)",
+        file=sys.stderr,
+    )
+    download_with_invisible_playwright(
+        page_url,
+        output,
+        expected_extension=_browser_file_extension(file_type),
+        headless=headless,
+        profile_dir=profile_dir or None,
+        seed=seed,
+        humanize=humanize,
+        initial_wait=initial_wait,
+        page_timeout=page_timeout,
+        download_timeout=download_timeout,
+        poll_interval=poll_interval,
+        close_vignette=close_vignette,
+    )
+    return version
+
+
 def _get_provider(kind, slug_map=None):
     from apkd.providers import get_provider
 
@@ -253,6 +397,25 @@ def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
                 f"requested {arch}"
             )
         arch = "universal"
+    mirror_config = _mirror_entry(cfg, normalized)
+
+    if normalized == "apkmirror" and _apkmirror_browser_requested(mirror_config):
+        if _browser_allowed_in_ci():
+            browser_type = mirror_file_type(cfg, normalized)
+            return _download_apkmirror_browser(
+                mirror_config,
+                cfg,
+                version,
+                "universal" if source.get("type") == "mirrors" else arch,
+                output,
+                browser_type,
+            )
+        print(
+            "[APKMirror] invisible_playwright browser mode is disabled in CI; "
+            "using the native apkd provider",
+            file=sys.stderr,
+        )
+
     prefer_xapk = _prefer_xapk(cfg, normalized)
     effective_arch = _effective_arch(cfg, normalized, arch)
 
@@ -269,7 +432,6 @@ def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
             "pip install 'apkd @ git+https://github.com/Fahry-a/apkd'"
         ) from exc
 
-    mirror_config = _mirror_entry(cfg, normalized)
     app_slug = mirror_config.get("slug") or mirror_config.get("name")
     app_id = mirror_config.get("app_id")
 

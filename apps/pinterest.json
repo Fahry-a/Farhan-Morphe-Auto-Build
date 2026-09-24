@@ -12,7 +12,13 @@
         "type": "apkmirror",
         "org": "pinterest",
         "repo": "pinterest-one-destination-for-a-world-of-inspiration",
-        "file_type": "apk"
+        "file_type": "apk",
+        "browser": "invisible_playwright",
+        "browser_page_url": "https://www.apkmirror.com/apk/pinterest/pinterest-one-destination-for-a-world-of-inspiration/pinterest-{version_dashes}-2-android-apk-download/",
+        "browser_headless": false,
+        "browser_initial_wait": 45,
+        "browser_page_timeout": 60,
+        "browser_download_timeout": 420
       },
       {
         "type": "apkcombo",

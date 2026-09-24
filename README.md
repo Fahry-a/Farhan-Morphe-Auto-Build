@@ -109,6 +109,30 @@ generated from configuration, so a new mirror-backed app is included without a
 workflow edit. Each matrix job uploads its JSON/log report even when the
 provider fails.
 
+### Local APKMirror browser transport
+
+Pinterest's APKMirror entry can use the pinned `invisible_playwright` Firefox
+transport locally. It opens the exact configured variant page in a headed
+window, closes only Google's visible vignette control when present, clicks the
+download control once, watches the browser's `.part` file, and then runs the
+normal exact package/version/universal-ABI validation:
+
+~~~bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+.venv/bin/python -m invisible_playwright fetch
+AAPT=/opt/android-sdk/build-tools/37.0.0/aapt \
+  .venv/bin/python tools/mirror_download.py \
+  --config apps/pinterest.json --arch universal \
+  --exact-version 14.34.0 --output /tmp/pinterest-14.34.0.apk
+~~~
+
+This is an operator-run headed flow, not a CAPTCHA solver or unattended CI
+integration. When `CI=true`, the downloader deliberately skips the browser
+transport and uses the native `apkd` provider; the live mirror workflow still
+runs its normal network validation. Set `APKMIRROR_BROWSER_ALLOW_CI=1` only for
+an explicitly controlled CI diagnostic.
+
 ### Manual Uptodown download
 
 Uptodown is registered as an opt-in provider, but its final download URL is
@@ -148,6 +172,18 @@ python tools/uptodown_browser.py com.pinterest \
   --cdp-url http://127.0.0.1:9222 --manual-click \
   --output /tmp/pinterest-14.34.0.apk
 ~~~
+
+For a bounded automatic diagnostic (without CDP/manual click), use:
+
+~~~bash
+python tools/uptodown_browser.py com.pinterest \
+  --version 14.34.0 --app-slug pinterest --app-id 20013 \
+  --headless --initial-wait 5 --retry-wait 5 --max-attempts 2 \
+  --response-timeout 30 --output /tmp/pinterest-14.34.0.apk
+~~~
+
+Headless mode cannot complete a human Turnstile and is not a challenge bypass.
+It only retries the normal Download click up to the configured bound.
 
 Keep the Pinterest entry `enabled: false` / `manual_browser: true`; GitHub
 Actions has no interactive browser session, so it must not be part of

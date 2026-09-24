@@ -46,7 +46,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--arch", default="universal")
     parser.add_argument("--prefer-xapk", action="store_true")
-    parser.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="use headless Chromium (cannot complete a human Turnstile)",
+    )
+    parser.add_argument(
+        "--initial-wait", type=float, default=5.0,
+        help="seconds to wait after page readiness before the first click",
+    )
+    parser.add_argument(
+        "--retry-wait", type=float, default=5.0,
+        help="seconds to wait before a bounded retry",
+    )
+    parser.add_argument(
+        "--max-attempts", type=int, default=2,
+        help="maximum normal click attempts (1-3)",
+    )
+    parser.add_argument(
+        "--response-timeout", type=float, default=30.0,
+        help="seconds to wait for each download-url response",
+    )
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument(
         "--metadata-only",
@@ -70,13 +90,20 @@ def _detect_container_type(path: Path) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if not args.metadata_only and args.output is None:
-        build_parser().error("--output is required unless --metadata-only is used")
+        parser.error("--output is required unless --metadata-only is used")
+    if args.headless and args.cdp_url:
+        parser.error("--headless cannot be combined with --cdp-url")
+    if args.headless and args.manual_click:
+        parser.error("--headless cannot be combined with --manual-click")
+    if args.max_attempts < 1 or args.max_attempts > 3:
+        parser.error("--max-attempts must be between 1 and 3")
     if args.headless:
         print(
-            "Headless mode is not recommended for Uptodown Turnstile; "
-            "use a visible browser window.",
+            "Headless mode cannot solve an interactive Turnstile; this is a "
+            "bounded diagnostic retry, not a challenge bypass.",
             file=sys.stderr,
         )
     provider = UptodownProvider(
@@ -84,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         cdp_url=args.cdp_url,
         channel=args.browser_channel,
         manual_click=args.manual_click,
+        headless=args.headless,
+        initial_wait=args.initial_wait,
+        retry_wait=args.retry_wait,
+        max_attempts=args.max_attempts,
+        response_timeout=args.response_timeout,
     )
     request = DownloadRequest(
         package=args.package,
