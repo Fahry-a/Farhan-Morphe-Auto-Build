@@ -1,0 +1,86 @@
+name: Cloudflare Challenge Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Target URL (empty = capskip demo + APKMirror variant)'
+        required: false
+        default: ''
+        type: string
+      settle:
+        description: 'Seconds to let the page settle before snapshotting'
+        required: false
+        default: '25'
+        type: string
+      no_solver:
+        description: 'Snapshot only, skip the single ClickSolver attempt'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-challenge-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: Probe runner IP behind Cloudflare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - name: Cache invisible-playwright engine
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/invisible-playwright
+          key: invisible-playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            invisible-playwright-${{ runner.os }}-
+      - name: Install probe dependencies
+        env:
+          APKD_ACCESS_TOKEN: ${{ secrets.APKD_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$APKD_ACCESS_TOKEN"
+          git config --global "url.https://x-access-token:${APKD_ACCESS_TOKEN}@github.com/.insteadOf" "https://github.com/"
+          uv pip install --system -r requirements.txt
+          sudo apt-get install -y xvfb
+          python -m invisible_playwright fetch
+      - name: Run challenge probe
+        env:
+          URL: ${{ inputs.url }}
+          SETTLE: ${{ inputs.settle }}
+        run: |
+          set -o pipefail
+          set +e
+          ARGS=(--report cf-probe-report.json --settle "$SETTLE")
+          if [ "${{ inputs.no_solver }}" = "true" ]; then
+            ARGS+=(--no-solver)
+          fi
+          if [ -n "$URL" ]; then
+            ARGS+=(--url "$URL")
+          fi
+          python3 tools/cf_challenge_probe.py "${ARGS[@]}" 2>&1 | tee cf-probe-output.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+      - name: Upload probe report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cf-probe-report
+          path: |
+            cf-probe-report.json
+            cf-probe-output.log
+          if-no-files-found: warn
