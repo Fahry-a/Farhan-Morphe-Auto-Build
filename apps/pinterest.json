@@ -33,7 +33,7 @@
         "name": "pinterest",
         "file_type": "xapk",
         "enabled": true,
-        "manual_browser": true
+        "manual_browser": false
       }
     ]
   },
