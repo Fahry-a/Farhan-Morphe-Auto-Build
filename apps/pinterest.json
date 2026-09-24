@@ -32,7 +32,7 @@
         "type": "uptodown",
         "name": "pinterest",
         "file_type": "xapk",
-        "enabled": false,
+        "enabled": true,
         "manual_browser": true
       }
     ]
