@@ -13,11 +13,6 @@ on:
         required: false
         default: '25'
         type: string
-      no_solver:
-        description: 'Snapshot only, skip the single ClickSolver attempt'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -40,19 +35,11 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: requirements.txt
-      - name: Cache invisible-playwright engine
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/invisible-playwright
-          key: invisible-playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            invisible-playwright-${{ runner.os }}-
       - name: Install probe dependencies
         run: |
           set -euo pipefail
-          uv pip install --system -r requirements.txt
-          sudo apt-get install -y xvfb
-          python -m invisible_playwright fetch
+          uv pip install --system playwright==1.63.0
+          python -m playwright install --with-deps chromium
       - name: Run challenge probe
         env:
           URL: ${{ inputs.url }}
@@ -61,9 +48,6 @@ jobs:
           set -o pipefail
           set +e
           ARGS=(--report cf-probe-report.json --settle "$SETTLE")
-          if [ "${{ inputs.no_solver }}" = "true" ]; then
-            ARGS+=(--no-solver)
-          fi
           if [ -n "$URL" ]; then
             ARGS+=(--url "$URL")
           fi
@@ -73,7 +57,7 @@ jobs:
           exit "$status"
       - name: Upload probe report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a0 # v7.0.1
         with:
           name: cf-probe-report
           path: |
