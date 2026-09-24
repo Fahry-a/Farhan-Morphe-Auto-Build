@@ -35,7 +35,12 @@ jobs:
           enable-cache: true
           cache-dependency-glob: requirements.txt
       - name: Install test dependencies
+        env:
+          APKD_ACCESS_TOKEN: ${{ secrets.APKD_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          test -n "$APKD_ACCESS_TOKEN"
+          git config --global "url.https://x-access-token:${APKD_ACCESS_TOKEN}@github.com/.insteadOf" "https://github.com/"
           echo "::group::Install test dependencies"
           uv pip install --system -r requirements.txt
           echo "::notice title=Dependencies ready::Python test environment installed."
