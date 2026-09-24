@@ -170,6 +170,21 @@ class APKMirrorBrowserTests(unittest.TestCase):
                     browser_factory=lambda **kwargs: None,
                 )
 
+    def test_selector_matches_real_download_button(self):
+        from bs4 import BeautifulSoup
+
+        html = (
+            '<a rel="nofollow" class="accent_bg btn btn-flat downloadButton yxW" '
+            'href="/apk/pinterest/pinterest-one-destination-for-a-world-of-inspiration/'
+            "pinterest-14-34-0-release/pinterest-14-34-0-2-android-apk-download/"
+            'download/?key=94fb85af6f67d79836d563a7d85b118ad5c6f7da&amp;forcebaseapk=true">'
+            "Download APK</a>"
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        matches = soup.select("a.downloadButton[href*='/download/']")
+        self.assertEqual(len(matches), 1)
+        self.assertIn("forcebaseapk=true", matches[0]["href"])
+
     def test_url_template_replaces_version(self):
         mirror = {
             "browser_page_url": (

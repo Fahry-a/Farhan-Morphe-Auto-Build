@@ -71,6 +71,40 @@ def _frames(page: Any) -> list[Any]:
         return [page]
 
 
+CHALLENGE_MARKERS = (
+    "Just a moment",
+    "Performing security verification",
+    "Verify you are human",
+    "Enable JavaScript and cookies",
+    "Attention Required",
+)
+
+
+def describe_page(page: Any) -> dict[str, Any]:
+    """Best-effort snapshot of what the browser actually shows.
+
+    Read-only: title, URL and challenge markers only. Never interacts
+    with any challenge. Every probe is guarded because the patched
+    Firefox may dispose the session mid-transition.
+    """
+    state: dict[str, Any] = {}
+    try:
+        state["url"] = page.url
+    except Exception:
+        pass
+    try:
+        state["title"] = page.title()
+    except Exception:
+        pass
+    try:
+        text = page.locator("body").inner_text(timeout=3000)
+        state["markers"] = [m for m in CHALLENGE_MARKERS if m.lower() in text.lower()]
+        state["body_preview"] = text[:300]
+    except Exception as exc:
+        state["body_error"] = f"{type(exc).__name__}: {exc}"
+    return state
+
+
 def dismiss_google_vignette(page: Any, *, log: Callable[[str], None] = print) -> bool:
     """Close one visible Google vignette, including inside child frames."""
     for frame in _frames(page):
@@ -329,8 +363,11 @@ def download_with_invisible_playwright(
                         break
                     sleep(min(5.0, poll_interval))
                 if not href:
+                    detail = describe_page(page)
+                    log(f"[APKMirror browser] page state on failure: {detail}")
                     raise APKMirrorBrowserError(
-                        "APKMirror download button was not found in the browser page"
+                        "APKMirror download button was not found in the "
+                        f"browser page (state={detail})"
                     )
 
                 if close_vignette and not vignette_closed:
