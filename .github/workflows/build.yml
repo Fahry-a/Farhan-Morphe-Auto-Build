@@ -143,6 +143,14 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
+      - name: Cache invisible-playwright engine
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/invisible-playwright
+          key: invisible-playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            invisible-playwright-${{ runner.os }}-
+
       - name: Install Python deps + Playwright Chromium
         env:
           APKD_ACCESS_TOKEN: ${{ secrets.APKD_TOKEN || secrets.GITHUB_TOKEN }}
@@ -152,6 +160,8 @@ jobs:
           git config --global "url.https://x-access-token:${APKD_ACCESS_TOKEN}@github.com/.insteadOf" "https://github.com/"
           uv pip install --system -r requirements.txt
           python -m playwright install chromium --with-deps
+          sudo apt-get install -y xvfb
+          python -m invisible_playwright fetch
 
       - name: Resolve patch + APK version
         id: resolve
@@ -218,6 +228,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
+          APKMIRROR_BROWSER_ALLOW_CI: '1'
+          APKMIRROR_BROWSER_HEADLESS: '1'
         run: |
           echo "::group::Download exact base package"
           echo "Target: ${{ matrix.app }} / ${{ matrix.arch }} / v${{ steps.resolve.outputs.apk_version }}"
