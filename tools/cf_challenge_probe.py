@@ -44,12 +44,12 @@ def page_verdict(snapshot: dict) -> str:
     title = str(snapshot.get("title") or "")
     if "just a moment" in title.lower() or snapshot.get("markers"):
         return "challenged"
-    if snapshot.get("body_preview"):
+    if snapshot.get("expected_content_found") is True:
         return "clear"
     return "unknown"
 
 
-async def snapshot_page(page, *, timeout_ms: int = 5000) -> dict:
+async def snapshot_page(\n    page, *, expected_selector: str | None = None, timeout_ms: int = 5000\n) -> dict:
     """Read-only snapshot; never clicks or solves anything."""
     snapshot: dict = {}
     try:
@@ -66,6 +66,15 @@ async def snapshot_page(page, *, timeout_ms: int = 5000) -> dict:
         snapshot["body_preview"] = body[:300]
     except Exception as exc:
         snapshot["body_error"] = f"{type(exc).__name__}: {exc}"
+    if expected_selector:
+        snapshot["expected_content_selector"] = expected_selector
+        try:
+            snapshot["expected_content_found"] = await page.locator(
+                expected_selector
+            ).first.is_visible(timeout=timeout_ms)
+        except Exception:
+            snapshot["expected_content_found"] = False
+
     try:
         snapshot["iframes"] = await page.evaluate(
             "() => Array.from(document.querySelectorAll('iframe')).map("
@@ -113,7 +122,7 @@ async def probe_url(url: str, *, settle: float, use_solver: bool,
         log(f"[probe] opening {url}")
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(settle)
-        result["before"] = await snapshot_page(page)
+        result["before"] = await snapshot_page(\n            page, expected_selector=expected_selector\n        )
         log(f"[probe] before: {result['before'].get('title')} "
             f"verdict={result['before']['verdict']}")
         if use_solver:
@@ -123,7 +132,7 @@ async def probe_url(url: str, *, settle: float, use_solver: bool,
         else:
             result["solver"] = {"ran": False, "error": None}
         await asyncio.sleep(8)
-        result["after"] = await snapshot_page(page)
+        result["after"] = await snapshot_page(\n            page, expected_selector=expected_selector\n        )
         log(f"[probe] after: verdict={result['after']['verdict']}")
     return result
 
