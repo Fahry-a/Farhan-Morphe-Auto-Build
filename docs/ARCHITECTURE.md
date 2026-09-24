@@ -307,8 +307,11 @@ python tools/uptodown_browser.py com.pinterest \
 
 The helper opens a visible Playwright Chromium window, waits for the operator
 to complete the normal challenge, captures Uptodown's download response, and
-then runs the same exact-version and universal ABI validation as the build.
-If the bundled Chromium is rejected by Turnstile, start a normal Chrome with a
+then runs the same exact-version and universal ABI validation as the build. If
+Chrome emits the final download, the provider captures it from the same
+browser context before disconnecting; otherwise it transfers the signed URL
+with the browser cookies and user agent. If the bundled Chromium is rejected
+by Turnstile, start a normal Chrome with a
 dedicated profile and remote debugging, then pass its CDP endpoint with
 `--cdp-url`; `--manual-click` lets the operator press Uptodown's Download
 button while Playwright only observes the normal response. The operator still

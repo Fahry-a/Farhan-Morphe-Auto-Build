@@ -124,7 +124,10 @@ python tools/uptodown_browser.py com.pinterest \
 
 Run this on a local machine with a visible Chromium window. The script does
 not use a third-party solver and validates exact version plus the universal ARM
-contract after the browser download. If Uptodown rejects Playwright's bundled
+contract after the browser download. When Chrome emits the final download
+itself, the helper captures that file from the same browser context before the
+context closes; otherwise it falls back to the signed URL with the browser
+cookies and user agent. If Uptodown rejects Playwright's bundled
 Chromium fingerprint, connect to a normal Chrome instance that you started
 yourself (there is no challenge automation or solver):
 
