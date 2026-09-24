@@ -127,11 +127,17 @@ AAPT=/opt/android-sdk/build-tools/37.0.0/aapt \
   --exact-version 14.34.0 --output /tmp/pinterest-14.34.0.apk
 ~~~
 
-This is an operator-run headed flow, not a CAPTCHA solver or unattended CI
-integration. When `CI=true`, the downloader deliberately skips the browser
-transport and uses the native `apkd` provider; the live mirror workflow still
-runs its normal network validation. Set `APKMIRROR_BROWSER_ALLOW_CI=1` only for
-an explicitly controlled CI diagnostic.
+This is an operator-run headed/headless flow, not a CAPTCHA solver or
+unattended CI integration. When `CI=true`, the downloader deliberately skips
+the browser transport and uses the native `apkd` provider. This is proven
+necessary, not just cautious: a controlled CI trial with the same pinned
+Firefox engine in headless+Xvfb mode stuck on Cloudflare's
+`Just a moment... / Performing security verification` page (Azure runner IP)
+until the bounded wait expired, while the same code on a local machine
+downloads the byte-identical artifact. So Pinterest cannot build unattended;
+produce the validated APK locally and feed it via the `direct_apk_url`
+workflow input. `APKMIRROR_BROWSER_ALLOW_CI=1` remains only as a diagnostic
+escape hatch, not a supported build path.
 
 ### Manual Uptodown download
 
