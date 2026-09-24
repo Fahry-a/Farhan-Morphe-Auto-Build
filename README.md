@@ -137,7 +137,7 @@ google-chrome \
 # Terminal 2: complete Turnstile in that Chrome window
 python tools/uptodown_browser.py com.pinterest \
   --version 14.34.0 --app-slug pinterest --app-id 20013 \
-  --cdp-url http://127.0.0.1:9222 --prefer-xapk \
+  --cdp-url http://127.0.0.1:9222 --manual-click --prefer-xapk \
   --output /tmp/pinterest-14.34.0.xapk
 ~~~
 

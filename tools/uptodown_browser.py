@@ -38,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--browser-channel",
         help="Playwright browser channel, e.g. chrome (CDP is recommended for Turnstile)",
     )
+    parser.add_argument(
+        "--manual-click",
+        action="store_true",
+        help="wait for you to click Uptodown's Download button manually",
+    )
     parser.add_argument("--arch", default="universal")
     parser.add_argument("--prefer-xapk", action="store_true")
     parser.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
@@ -64,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         browser=True,
         cdp_url=args.cdp_url,
         channel=args.browser_channel,
+        manual_click=args.manual_click,
     )
     request = DownloadRequest(
         package=args.package,

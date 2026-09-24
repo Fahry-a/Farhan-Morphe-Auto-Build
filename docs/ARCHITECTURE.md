@@ -310,7 +310,9 @@ to complete the normal challenge, captures Uptodown's download response, and
 then runs the same exact-version and universal ABI validation as the build.
 If the bundled Chromium is rejected by Turnstile, start a normal Chrome with a
 dedicated profile and remote debugging, then pass its CDP endpoint with
-`--cdp-url`; the operator still completes the challenge manually. No
+`--cdp-url`; `--manual-click` lets the operator press Uptodown's Download
+button while Playwright only observes the normal response. The operator still
+completes the challenge manually. No
 third-party CAPTCHA solver or stealth/automation bypass is used. The Pinterest
 Uptodown entry remains `enabled: false` / `manual_browser: true` until this
 flow has produced and validated a real artifact; it must not be enabled for
