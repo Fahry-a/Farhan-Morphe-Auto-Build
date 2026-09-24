@@ -175,8 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     urls = args.url or list(DEFAULT_URLS)
     report = asyncio.run(run_probe(urls, settle=args.settle,
                                    use_solver=not args.no_solver, log=print))
-    Path(args.report).write_text(json.dumps(report, indent=2) + "
-")
+    Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
     print(f"report: {args.report}")
     for entry in report["results"]:
         before = entry.get("before", {}).get("verdict")
