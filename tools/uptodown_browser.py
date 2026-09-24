@@ -30,6 +30,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--app-slug", help="Uptodown slug, e.g. pinterest")
     parser.add_argument("--app-id", help="known Uptodown numeric app ID")
+    parser.add_argument(
+        "--cdp-url",
+        help="CDP endpoint of a normal Chrome started by the operator, e.g. http://127.0.0.1:9222",
+    )
+    parser.add_argument(
+        "--browser-channel",
+        help="Playwright browser channel, e.g. chrome (CDP is recommended for Turnstile)",
+    )
     parser.add_argument("--arch", default="universal")
     parser.add_argument("--prefer-xapk", action="store_true")
     parser.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
@@ -52,7 +60,11 @@ def main(argv: list[str] | None = None) -> int:
             "use a visible browser window.",
             file=sys.stderr,
         )
-    provider = UptodownProvider(browser=True)
+    provider = UptodownProvider(
+        browser=True,
+        cdp_url=args.cdp_url,
+        channel=args.browser_channel,
+    )
     request = DownloadRequest(
         package=args.package,
         version=args.version,

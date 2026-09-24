@@ -124,9 +124,26 @@ python tools/uptodown_browser.py com.pinterest \
 
 Run this on a local machine with a visible Chromium window. The script does
 not use a third-party solver and validates exact version plus the universal ARM
-contract after the browser download. Keep the Pinterest entry
-`enabled: false` / `manual_browser: true`; GitHub Actions has no interactive
-browser session, so it must not be part of unattended CI.
+contract after the browser download. If Uptodown rejects Playwright's bundled
+Chromium fingerprint, connect to a normal Chrome instance that you started
+yourself (there is no challenge automation or solver):
+
+~~~bash
+# Terminal 1: use a dedicated profile so your normal profile stays untouched
+google-chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/uptodown-chrome about:blank
+
+# Terminal 2: complete Turnstile in that Chrome window
+python tools/uptodown_browser.py com.pinterest \
+  --version 14.34.0 --app-slug pinterest --app-id 20013 \
+  --cdp-url http://127.0.0.1:9222 --prefer-xapk \
+  --output /tmp/pinterest-14.34.0.xapk
+~~~
+
+Keep the Pinterest entry `enabled: false` / `manual_browser: true`; GitHub
+Actions has no interactive browser session, so it must not be part of
+unattended CI.
 
 ## Documentation
 
