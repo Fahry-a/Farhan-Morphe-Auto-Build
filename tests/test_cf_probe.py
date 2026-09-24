@@ -21,10 +21,24 @@ class CfProbeTests(unittest.TestCase):
             "challenged",
         )
 
-    def test_verdict_clear_needs_body(self):
+    def test_verdict_clear_requires_expected_content(self):
         self.assertEqual(
-            page_verdict({"title": "App page", "markers": [], "body_preview": "hi"}),
+            page_verdict({
+                "title": "App page",
+                "markers": [],
+                "body_preview": "hi",
+                "expected_content_found": True,
+            }),
             "clear",
+        )
+        self.assertEqual(
+            page_verdict({
+                "title": "App page",
+                "markers": [],
+                "body_preview": "hi",
+                "expected_content_found": False,
+            }),
+            "unknown",
         )
         self.assertEqual(page_verdict({}), "unknown")
 
