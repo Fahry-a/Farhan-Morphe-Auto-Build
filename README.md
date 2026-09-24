@@ -109,6 +109,24 @@ generated from configuration, so a new mirror-backed app is included without a
 workflow edit. Each matrix job uploads its JSON/log report even when the
 provider fails.
 
+### Manual Uptodown download
+
+Uptodown is registered as an opt-in provider, but its final download URL is
+issued only after an interactive Cloudflare Turnstile flow. It is therefore
+disabled in the normal Pinterest mirror chain until a browser-assisted
+artifact has been validated locally:
+
+~~~bash
+python tools/uptodown_browser.py com.pinterest \
+  --version 14.34.0 --app-slug pinterest --prefer-xapk \
+  --output /tmp/pinterest-14.34.0.xapk
+~~~
+
+Run this on a local machine with a visible Chromium window. The script does
+not use a third-party solver and validates exact version plus the universal ARM
+contract after the browser download. It is intentionally not part of
+unattended CI.
+
 ## Documentation
 
 See the detailed contributor and architecture guide:

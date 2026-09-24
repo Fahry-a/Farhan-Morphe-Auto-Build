@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - direct ``python tools/...`` use
     from common import source_architecture_entries, validate_package
     from mirror_download import download_from_mirror
 
-SUPPORTED_MIRRORS = frozenset({"apkpure", "apkcombo", "aptoide", "apkmirror"})
+SUPPORTED_MIRRORS = frozenset({"apkpure", "apkcombo", "aptoide", "apkmirror", "uptodown"})
 
 
 @dataclass(frozen=True)

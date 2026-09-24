@@ -27,6 +27,13 @@
       {
         "type": "aptoide",
         "file_type": "apk"
+      },
+      {
+        "type": "uptodown",
+        "name": "pinterest",
+        "file_type": "xapk",
+        "enabled": false,
+        "manual_browser": true
       }
     ]
   },

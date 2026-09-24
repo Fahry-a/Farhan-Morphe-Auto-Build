@@ -307,10 +307,9 @@ class MirrorDownloaderTests(unittest.TestCase):
             self._run_provider("apkpure", version="1.2.3",
                                artifact_version="9.9.9")
 
-    def test_download_from_mirror_rejects_uptodown_with_migration_hint(self):
-        cfg = _cfg([{"type": "apkcombo"}])
-        with self.assertRaisesRegex(RuntimeError, "apkcombo"):
-            download_from_mirror("uptodown", cfg, "universal", "1.2.3", "out.apk")
+    def test_download_from_mirror_accepts_opt_in_uptodown(self):
+        fake, _, _ = self._run_provider("uptodown", file_type="xapk")
+        self.assertTrue(fake.seen_request.prefer_xapk)
 
     def test_download_from_mirror_rejects_unknown_source(self):
         cfg = _cfg([])

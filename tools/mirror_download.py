@@ -21,7 +21,7 @@ except ModuleNotFoundError:
     from tools.common import validate_package
 
 
-SUPPORTED_MIRRORS = ("apkpure", "aptoide", "apkcombo", "apkmirror")
+SUPPORTED_MIRRORS = ("apkpure", "aptoide", "apkcombo", "apkmirror", "uptodown")
 
 _BUNDLE_FILE_TYPES = ("xapk", "apkm", "apks")
 
@@ -238,11 +238,6 @@ def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
     the same helper is useful for both CI jobs and long-running local audits.
     """
     normalized = str(kind or "").lower()
-    if normalized == "uptodown":
-        raise RuntimeError(
-            "uptodown is no longer supported (apkd dropped it: Cloudflare "
-            "Turnstile). Migrate apps/*.json mirror type to apkcombo."
-        )
     if normalized not in SUPPORTED_MIRRORS:
         raise RuntimeError(f"Unsupported mirror: {kind}")
 

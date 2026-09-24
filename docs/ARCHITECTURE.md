@@ -281,16 +281,35 @@ The downloader searches by package name, resolves the exact requested
 version (including old-versions), picks the matching arch variant, then
 validates the resulting package.
 
-Uptodown was removed: apkd dropped its provider because file URLs sit
-behind Cloudflare Turnstile, so all `type == "uptodown"` mirrors were
-migrated to `type == "apkcombo"`. tools/mirror_download.py fails fast
-with a migration hint if an old uptodown entry is still present.
+Uptodown was previously removed because its final file URL is issued after a
+Cloudflare Turnstile flow. It is now available again only as an explicit,
+browser-assisted provider; it is not part of the default unattended fallback
+order.
 
 ### Aptoide
 
 Aptoide is accessed through its public API.
 
 The downloader finds the requested vername, obtains the corresponding vercode, requests metadata and downloads the returned package path.
+
+### Uptodown
+
+Uptodown is an opt-in, browser-assisted provider. Its public version metadata
+is resolved normally, but the final file URL is issued only after an
+interactive Cloudflare Turnstile flow. Use the local helper rather than
+unattended CI:
+
+~~~bash
+python tools/uptodown_browser.py com.pinterest \
+  --version 14.34.0 --app-slug pinterest --prefer-xapk \
+  --output /tmp/pinterest-14.34.0.xapk
+~~~
+
+The helper opens a visible Playwright Chromium window, waits for the operator
+to complete the normal challenge, captures Uptodown's download response, and
+then runs the same exact-version and universal ABI validation as the build.
+No third-party CAPTCHA solver is used. The Pinterest Uptodown entry remains
+`enabled: false` until this flow has produced and validated a real artifact.
 
 ### Live mirror audit
 
