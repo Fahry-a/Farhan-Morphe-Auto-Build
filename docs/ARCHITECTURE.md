@@ -301,7 +301,7 @@ unattended CI:
 
 ~~~bash
 python tools/uptodown_browser.py com.pinterest \
-  --version 14.34.0 --app-slug pinterest --prefer-xapk \
+  --version 14.34.0 --app-slug pinterest --app-id 20013 --prefer-xapk \
   --output /tmp/pinterest-14.34.0.xapk
 ~~~
 
@@ -309,7 +309,8 @@ The helper opens a visible Playwright Chromium window, waits for the operator
 to complete the normal challenge, captures Uptodown's download response, and
 then runs the same exact-version and universal ABI validation as the build.
 No third-party CAPTCHA solver is used. The Pinterest Uptodown entry remains
-`enabled: false` until this flow has produced and validated a real artifact.
+`enabled: false` / `manual_browser: true` until this flow has produced and
+validated a real artifact; it must not be enabled for unattended Actions.
 
 ### Live mirror audit
 

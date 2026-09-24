@@ -118,14 +118,15 @@ artifact has been validated locally:
 
 ~~~bash
 python tools/uptodown_browser.py com.pinterest \
-  --version 14.34.0 --app-slug pinterest --prefer-xapk \
+  --version 14.34.0 --app-slug pinterest --app-id 20013 --prefer-xapk \
   --output /tmp/pinterest-14.34.0.xapk
 ~~~
 
 Run this on a local machine with a visible Chromium window. The script does
 not use a third-party solver and validates exact version plus the universal ARM
-contract after the browser download. It is intentionally not part of
-unattended CI.
+contract after the browser download. Keep the Pinterest entry
+`enabled: false` / `manual_browser: true`; GitHub Actions has no interactive
+browser session, so it must not be part of unattended CI.
 
 ## Documentation
 

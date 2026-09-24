@@ -106,7 +106,7 @@ def _mirror_entry(cfg, kind):
 
 
 def _build_request(package, version, arch, prefer_xapk, dpi=None, min_sdk=None,
-                   timeout=30.0, app_slug=None):
+                   timeout=30.0, app_slug=None, app_id=None):
     from dataclasses import fields
     from apkd.models import DownloadRequest
 
@@ -123,6 +123,8 @@ def _build_request(package, version, arch, prefer_xapk, dpi=None, min_sdk=None,
     # allowing a newer provider release to use the optional page hint.
     if app_slug and any(field.name == "app_slug" for field in fields(DownloadRequest)):
         values["app_slug"] = app_slug
+    if app_id and any(field.name == "app_id" for field in fields(DownloadRequest)):
+        values["app_id"] = str(app_id)
     return DownloadRequest(**values)
 
 
@@ -269,6 +271,7 @@ def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
 
     mirror_config = _mirror_entry(cfg, normalized)
     app_slug = mirror_config.get("slug") or mirror_config.get("name")
+    app_id = mirror_config.get("app_id")
 
     if normalized == "apkmirror":
         mirror = mirror_config
@@ -277,7 +280,7 @@ def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
         for candidate in _arch_candidates(effective_arch):
             request = _build_request(package, version, candidate, prefer_xapk,
                                      dpi=dpi, min_sdk=min_sdk, timeout=timeout,
-                                     app_slug=app_slug)
+                                     app_slug=app_slug, app_id=app_id)
             try:
                 artifact = provider.resolve_request(request)
             except Exception as exc:
@@ -301,7 +304,7 @@ def download_from_mirror(kind, cfg, arch, version, output, *, timeout=30.0):
             )
     else:
         request = _build_request(package, version, effective_arch, prefer_xapk,
-                                 timeout=timeout, app_slug=app_slug)
+                                 timeout=timeout, app_slug=app_slug, app_id=app_id)
         try:
             artifact = provider.resolve_request(request)
         except ImportError:

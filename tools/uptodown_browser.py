@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", required=True, help="exact Uptodown version")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--app-slug", help="Uptodown slug, e.g. pinterest")
+    parser.add_argument("--app-id", help="known Uptodown numeric app ID")
     parser.add_argument("--arch", default="universal")
     parser.add_argument("--prefer-xapk", action="store_true")
     parser.add_argument("--headless", action="store_true", help=argparse.SUPPRESS)
@@ -59,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         prefer_xapk=args.prefer_xapk,
         timeout=args.timeout,
         app_slug=args.app_slug,
+        app_id=args.app_id,
     )
     try:
         if args.metadata_only:
