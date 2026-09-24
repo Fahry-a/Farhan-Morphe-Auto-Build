@@ -49,7 +49,9 @@ def page_verdict(snapshot: dict) -> str:
     return "unknown"
 
 
-async def snapshot_page(\n    page, *, expected_selector: str | None = None, timeout_ms: int = 5000\n) -> dict:
+async def snapshot_page(
+    page, *, expected_selector: str | None = None, timeout_ms: int = 5000
+) -> dict:
     """Read-only snapshot; never clicks or solves anything."""
     snapshot: dict = {}
     try:
@@ -122,7 +124,9 @@ async def probe_url(url: str, *, settle: float, use_solver: bool,
         log(f"[probe] opening {url}")
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(settle)
-        result["before"] = await snapshot_page(\n            page, expected_selector=expected_selector\n        )
+        result["before"] = await snapshot_page(
+            page, expected_selector=expected_selector
+        )
         log(f"[probe] before: {result['before'].get('title')} "
             f"verdict={result['before']['verdict']}")
         if use_solver:
@@ -132,7 +136,9 @@ async def probe_url(url: str, *, settle: float, use_solver: bool,
         else:
             result["solver"] = {"ran": False, "error": None}
         await asyncio.sleep(8)
-        result["after"] = await snapshot_page(\n            page, expected_selector=expected_selector\n        )
+        result["after"] = await snapshot_page(
+            page, expected_selector=expected_selector
+        )
         log(f"[probe] after: verdict={result['after']['verdict']}")
     return result
 
@@ -169,7 +175,8 @@ def main(argv: list[str] | None = None) -> int:
     urls = args.url or list(DEFAULT_URLS)
     report = asyncio.run(run_probe(urls, settle=args.settle,
                                    use_solver=not args.no_solver, log=print))
-    Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
+    Path(args.report).write_text(json.dumps(report, indent=2) + "
+")
     print(f"report: {args.report}")
     for entry in report["results"]:
         before = entry.get("before", {}).get("verdict")
