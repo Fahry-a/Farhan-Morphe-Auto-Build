@@ -71,28 +71,25 @@ jobs:
                   )
               )
 
-              report.write_text(
-                  "\n".join(
-                      [
-                          f"URL: {url}",
-                          f"HTTP status: {response.status if response else 'none'}",
-                          f"Title: {title}",
-                          f"Cloudflare/interstitial detected: {challenge}",
-                          "",
-                          "Visible text:",
-                          body,
-                      ),
-                  )
-              )
+              lines = [
+                  f"URL: {url}",
+                  f"HTTP status: {response.status if response else 'none'}",
+                  f"Title: {title}",
+                  f"Cloudflare/interstitial detected: {challenge}",
+                  "",
+                  "Visible text:",
+                  body,
+              ]
+              report.write_text("\n".join(lines), encoding="utf-8")
 
               page.screenshot(path="apkmirror-headed.png", full_page=True)
-              print(report.read_text())
+              print(report.read_text(encoding="utf-8"))
 
               browser.close()
 
           PY
 
-          xvfb-run -a --server-args="-screen 0 1366x768x24"             python smoke.py
+          xvfb-run -a --server-args="-screen 0 1366x768x24" python smoke.py
 
       - name: Upload diagnostic report
         if: always()
