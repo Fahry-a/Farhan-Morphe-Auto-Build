@@ -1,0 +1,104 @@
+name: APKMirror Headed Chromium Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "URL to open for headed Chromium compatibility testing"
+        required: false
+        default: "https://www.apkmirror.com/"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Headed Chromium / Xvfb
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup Chromium and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium xvfb
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          python -m playwright install chromium
+
+      - name: Run headed Chromium smoke test
+        env:
+          TARGET_URL: ${{ inputs.url }}
+        run: |
+          cat > smoke.py <<'PY'
+          import os
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          url = os.environ["TARGET_URL"]
+          report = Path("apkmirror-headed-report.txt")
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch(
+                  headless=False,
+                  executable_path="/usr/bin/chromium",
+                  args=["--no-sandbox"],
+              )
+              page = browser.new_page(viewport={"width": 1366, "height": 768})
+              response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+              page.wait_for_timeout(10000)
+
+              title = page.title()
+              body = page.locator("body").inner_text(timeout=10000)[:12000]
+              lower = body.lower()
+
+              challenge = any(
+                  marker in lower
+                  for marker in (
+                      "just a moment",
+                      "checking your browser",
+                      "verify you are human",
+                      "cf-chl-",
+                      "cloudflare",
+                  )
+              )
+
+              report.write_text(
+                  "\n".join(
+                      [
+                          f"URL: {url}",
+                          f"HTTP status: {response.status if response else 'none'}",
+                          f"Title: {title}",
+                          f"Cloudflare/interstitial detected: {challenge}",
+                          "",
+                          "Visible text:",
+                          body,
+                      ),
+                  )
+              )
+
+              page.screenshot(path="apkmirror-headed.png", full_page=True)
+              print(report.read_text())
+
+              browser.close()
+
+          PY
+
+          xvfb-run -a --server-args="-screen 0 1366x768x24"             python smoke.py
+
+      - name: Upload diagnostic report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: apkmirror-headed-chromium-report
+          path: |
+            apkmirror-headed-report.txt
+            apkmirror-headed.png
