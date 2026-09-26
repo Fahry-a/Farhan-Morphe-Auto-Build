@@ -3,4 +3,4 @@ curl_cffi==0.16.3
 playwright==1.63.0
 invisible-playwright==0.25.5
 playwright-captcha==0.1.5
-apkd @ git+https://github.com/Fahry-a/apkd@d03e425eb2af7018078d6afd67dfd4de0cceb103
+apkd @ git+https://github.com/Fahry-a/apkd@29606ea169c84450f88f0b7e62abb7a65fdeaaab
