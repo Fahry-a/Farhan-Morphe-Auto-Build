@@ -1,0 +1,35 @@
+{
+  "id": "audiorelay",
+  "display_name": "AudioRelay",
+  "package": "com.azefsw.audioconnect",
+  "patch_repo": "kiraio-moe/Lain-Patches",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "apk",
+    "mirrors": [
+      {
+        "type": "apkpure",
+        "name": "audiorelay-stream-audio-mic",
+        "file_type": "apk"
+      },
+      {
+        "type": "apkcombo",
+        "name": "audiorelay",
+        "file_type": "apk"
+      },
+      {
+        "type": "aptoide",
+        "file_type": "apk"
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default Lain-Patches AudioRelay patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}

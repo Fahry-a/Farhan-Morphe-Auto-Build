@@ -1,0 +1,53 @@
+{
+  "id": "pinterest",
+  "display_name": "Pinterest",
+  "package": "com.pinterest",
+  "patch_repo": "browzomje/browzomje-patches",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "apk",
+    "mirrors": [
+      {
+        "type": "apkmirror",
+        "org": "pinterest",
+        "repo": "pinterest-one-destination-for-a-world-of-inspiration",
+        "file_type": "apk",
+        "browser": "invisible_playwright",
+        "browser_page_url": "https://www.apkmirror.com/apk/pinterest/pinterest-one-destination-for-a-world-of-inspiration/pinterest-{version_dashes}-2-android-apk-download/",
+        "browser_initial_wait": 5,
+        "browser_page_timeout": 100,
+        "browser_download_timeout": 700
+      },
+      {
+        "type": "apkcombo",
+        "name": "pinterest",
+        "file_type": "apk"
+      },
+      {
+        "type": "apkpure",
+        "name": "pinterest",
+        "file_type": "xapk"
+      },
+      {
+        "type": "aptoide",
+        "file_type": "apk"
+      },
+      {
+        "type": "uptodown",
+        "name": "pinterest",
+        "app_id": "20013",
+        "file_type": "apk",
+        "enabled": false
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default browzomje Pinterest patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}

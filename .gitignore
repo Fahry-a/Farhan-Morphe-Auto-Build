@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.keystore
+*.b64
+*.apk
+*.apkm
+*.apks
+*.xapk
+*.partial
+mirror-report*.json
+mirror-output*.log
+mirror-downloads/
+morphe-data/

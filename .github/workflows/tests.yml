@@ -1,0 +1,77 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - 'audit/**'
+    paths:
+      - 'tools/**'
+      - 'tests/**'
+      - '.github/workflows/tests.yml'
+      - 'requirements.txt'
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'tests/**'
+      - '.github/workflows/tests.yml'
+      - 'requirements.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - name: Install test dependencies
+        env:
+          APKD_ACCESS_TOKEN: ${{ secrets.APKD_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$APKD_ACCESS_TOKEN"
+          export GIT_CONFIG_COUNT=1
+          export "GIT_CONFIG_KEY_0=url.https://x-access-token:${APKD_ACCESS_TOKEN}@github.com/.insteadOf"
+          export GIT_CONFIG_VALUE_0="https://github.com/"
+          echo "::group::Install test dependencies"
+          uv pip install --system -r requirements.txt
+          unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          echo "::notice title=Dependencies ready::Python test environment installed."
+          echo "::endgroup::"
+      - name: Run unit tests
+        timeout-minutes: 15
+        run: |
+          echo "::group::Run unit test suite"
+          set -o pipefail
+          set +e
+          python -m unittest discover -s tests -v 2>&1 | tee test-output.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "::endgroup::"
+          {
+            echo "### Unit test result"
+            echo
+            if [ "$status" -eq 0 ]; then
+              echo "Result: **PASS**"
+            else
+              echo "Result: **FAIL**"
+            fi
+            echo
+            grep -E 'Ran [0-9]+ tests|^OK$|^FAILED' test-output.log || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then
+            echo "::notice title=Tests passed::Full unittest suite completed successfully."
+          else
+            echo "::error title=Tests failed::The unittest suite reported failures."
+            exit "$status"
+          fi

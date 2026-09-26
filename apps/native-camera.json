@@ -1,0 +1,34 @@
+{
+  "id": "native-camera",
+  "display_name": "Native Camera",
+  "package": "com.rawcam.app",
+  "patch_repo": "WaggBR/Wagg13Patch_Morphe",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "xapk",
+    "archs": [
+      {
+        "name": "arm64"
+      },
+      {
+        "name": "arm32"
+      }
+    ],
+    "mirrors": [
+      {
+        "type": "apkpure",
+        "name": "native-camera",
+        "file_type": "xapk"
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default Native Camera patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}

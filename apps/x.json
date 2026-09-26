@@ -1,0 +1,37 @@
+{
+  "id": "x",
+  "display_name": "X / Twitter",
+  "package": "com.twitter.android",
+  "patch_repo": "crimera/piko",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "apkm",
+    "mirrors": [
+      {
+        "type": "apkmirror",
+        "org": "x-corp",
+        "repo": "twitter"
+      },
+      {
+        "type": "apkpure",
+        "name": "twitter"
+      },
+      {
+        "type": "apkcombo",
+        "name": "twitter"
+      },
+      {
+        "type": "aptoide"
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default flavor with all default X patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}

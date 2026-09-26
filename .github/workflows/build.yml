@@ -1,0 +1,501 @@
+name: Daily Morphe Auto Build
+
+on:
+  schedule:
+    # 02:00 UTC = 09:00 WIB, daily
+    - cron: '0 2 * * *'
+  push:
+    branches: [main]
+    paths: ['apps/**', 'tools/**', '.github/workflows/build.yml', 'requirements.txt']
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App id (all, or any id in apps/)'
+        required: false
+        default: 'all'
+        type: string
+      arch:
+        description: 'Architecture (all, universal for mirror apps, or e.g. arm64 for Brave)'
+        required: false
+        default: 'all'
+        type: string
+      direct_apk_url:
+        description: 'Direct APK URL (manual fallback). Single-app only.'
+        required: false
+        type: string
+      allow_experimental:
+        description: 'Allow experimental targets from patches-list.json'
+        required: false
+        default: false
+        type: boolean
+      rebuild:
+        description: 'Force a rebuild even if the asset already exists'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: morphe-auto-build
+  cancel-in-progress: false
+
+env:
+  MORPHE_CLI_VERSION: '1.17.0'
+  MORPHE_CLI_SHA256: '8cf6a9eab4ee9dab146bddc24681897851564f53116baec11f36ba2fa2f589be'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show build context
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+          ONLY_APP: ${{ inputs.app }}
+          ONLY_ARCH: ${{ inputs.arch }}
+          REBUILD: ${{ inputs.rebuild }}
+        run: |
+          echo "::notice title=Build context::event=$EVENT ref=$REF app=${ONLY_APP:-all} arch=${ONLY_ARCH:-all} rebuild=${REBUILD:-false}"
+          echo "Build context: event=$EVENT ref=$REF app=$ONLY_APP arch=$ONLY_ARCH rebuild=$REBUILD"
+      - name: Validate manual inputs
+        env:
+          ONLY_APP: ${{ inputs.app }}
+          ONLY_ARCH: ${{ inputs.arch }}
+          DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
+        run: |
+          if [ -n "$DIRECT_APK_URL" ] && { [ "$ONLY_APP" = "all" ] || [ "$ONLY_ARCH" = "all" ]; }; then
+            echo "::error::direct_apk_url requires a single app and a single arch."
+            exit 1
+          fi
+      - id: list
+        env:
+          ONLY_APP: ${{ inputs.app }}
+          ONLY_ARCH: ${{ inputs.arch }}
+        run: |
+          MATRIX=$(python3 -c "
+          import glob, json, os
+          from tools.common import source_architecture_entries
+          only_app = os.environ.get('ONLY_APP') or 'all'
+          only_arch = os.environ.get('ONLY_ARCH') or 'all'
+          pairs = []
+          for path in sorted(glob.glob('apps/*.json')):
+              cfg = json.load(open(path))
+              if cfg.get('enabled', True) is False:
+                  continue
+              if only_app != 'all' and cfg['id'] != only_app:
+                  continue
+              for arch in source_architecture_entries(cfg['source']):
+                  if only_arch != 'all' and arch['name'] != only_arch:
+                      continue
+                  pairs.append({'app': cfg['id'], 'arch': arch['name'], 'config': path})
+          print(json.dumps(pairs))
+          ")
+          if [ "$MATRIX" = "[]" ]; then
+            echo "::error::No enabled app/arch pair matched the requested inputs."
+            exit 1
+          fi
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Pairs: $MATRIX"
+
+  build:
+    name: Build ${{ matrix.app }} / ${{ matrix.arch }}
+    needs: setup
+    if: needs.setup.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.setup.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Java 21 (for the morphe-desktop CLI)
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Cache invisible-playwright engine
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/invisible-playwright
+          key: invisible-playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            invisible-playwright-${{ runner.os }}-
+
+      - name: Install Python deps + Playwright Chromium
+        env:
+          APKD_ACCESS_TOKEN: ${{ secrets.APKD_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$APKD_ACCESS_TOKEN"
+          # Scope the token to the pip install only: GIT_CONFIG_* is honoured
+          # by the git clone pip runs internally, and is unset before anything
+          # else executes in this step.
+          export GIT_CONFIG_COUNT=1
+          export "GIT_CONFIG_KEY_0=url.https://x-access-token:${APKD_ACCESS_TOKEN}@github.com/.insteadOf"
+          export GIT_CONFIG_VALUE_0="https://github.com/"
+          uv pip install --system -r requirements.txt
+          unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          python -m playwright install chromium --with-deps
+          sudo apt-get update && sudo apt-get install -y xvfb
+          python -m invisible_playwright fetch
+
+      - name: Resolve patch + APK version
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MATRIX_APP: ${{ matrix.app }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          MATRIX_CONFIG: ${{ matrix.config }}
+          INPUT_ALLOW_EXPERIMENTAL: ${{ inputs.allow_experimental }}
+        run: |
+          echo "::group::Resolve supported versions"
+          echo "Target: $MATRIX_APP / $MATRIX_ARCH"
+          EXTRA=""
+          if [ "$INPUT_ALLOW_EXPERIMENTAL" = "true" ]; then EXTRA="--allow-experimental"; fi
+          python3 tools/resolve_version.py --config "$MATRIX_CONFIG" $EXTRA --json-out resolved.json
+          cat resolved.json
+          MPP_URL=$(python3 -c "import json; print(json.load(open('resolved.json'))['mpp_url'])")
+          MPP_VER=$(python3 -c "import json; print(json.load(open('resolved.json'))['mpp_version'])")
+          APK_VER=$(python3 -c "import json; print(json.load(open('resolved.json'))['apk_version'])")
+          echo "mpp_url=$MPP_URL" >> $GITHUB_OUTPUT
+          echo "mpp_version=$MPP_VER" >> $GITHUB_OUTPUT
+          echo "apk_version=$APK_VER" >> $GITHUB_OUTPUT
+          echo "Resolved: APK $APK_VER | Morphe patch $MPP_VER"
+          echo "::endgroup::"
+
+      - name: Check monthly release for existing assets
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MATRIX_APP: ${{ matrix.app }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          MATRIX_CONFIG: ${{ matrix.config }}
+          INPUT_REBUILD: ${{ inputs.rebuild }}
+          RESOLVE_APK_VERSION: ${{ steps.resolve.outputs.apk_version }}
+        run: |
+          TAG=$(date -u +%Y-%m)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          if [ "$INPUT_REBUILD" = "true" ]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # RESOLVE_APK_VERSION originates in a third-party patch repo's
+          # patches-list.json. It is only ever passed through the environment
+          # and read back inside Python -- never interpolated into shell or
+          # into a Python string literal -- so a hostile version cannot break
+          # out into code execution.
+          EXPECTED=$(MATRIX_APP="$MATRIX_APP" MATRIX_ARCH="$MATRIX_ARCH" \
+            RESOLVE_APK_VERSION="$RESOLVE_APK_VERSION" MATRIX_CONFIG="$MATRIX_CONFIG" \
+            python3 -c "
+          import json, os
+          cfg = json.load(open(os.environ['MATRIX_CONFIG']))
+          ver = os.environ['RESOLVE_APK_VERSION']
+          app = os.environ['MATRIX_APP']; arch = os.environ['MATRIX_ARCH']
+          print(' '.join(f'{app}-{arch}-v{ver}' + f.get('output_suffix', '') + '.apk' for f in cfg['flavors']))
+          ")
+          echo "Expected: $EXPECTED"
+          HAVE=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+          MISSING=0
+          for f in $EXPECTED; do
+            echo "$HAVE" | grep -qx "$f" || MISSING=1
+          done
+          if [ "$MISSING" = "0" ]; then
+            echo "All assets already in $TAG, skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download prebuilt .mpp
+        if: steps.check.outputs.skip != 'true'
+        env:
+          RESOLVE_MPP_URL: ${{ steps.resolve.outputs.mpp_url }}
+          RESOLVE_MPP_VERSION: ${{ steps.resolve.outputs.mpp_version }}
+        run: |
+          echo "::group::Download Morphe patch"
+          curl --fail --location --retry 3 --retry-all-errors -o patches.mpp "$RESOLVE_MPP_URL"
+          ls -lh patches.mpp
+          echo "::notice title=Morphe patch ready::v$RESOLVE_MPP_VERSION downloaded."
+          echo "::endgroup::"
+
+      - name: Download base package
+        id: download
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
+          APKMIRROR_BROWSER_ALLOW_CI: '1'
+          APKMIRROR_BROWSER_HEADLESS: '1'
+          MATRIX_APP: ${{ matrix.app }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          MATRIX_CONFIG: ${{ matrix.config }}
+          RESOLVE_APK_VERSION: ${{ steps.resolve.outputs.apk_version }}
+        run: |
+          echo "::group::Download exact base package"
+          echo "Target: $MATRIX_APP / $MATRIX_ARCH / v$RESOLVE_APK_VERSION"
+          TYPE=$(MATRIX_CONFIG="$MATRIX_CONFIG" python3 -c "import json, os; print(json.load(open(os.environ['MATRIX_CONFIG']))['source']['type'])")
+          FILE_TYPE=$(MATRIX_CONFIG="$MATRIX_CONFIG" python3 -c "import json, os; print(json.load(open(os.environ['MATRIX_CONFIG']))['source'].get('file_type', 'apk'))")
+          case "$FILE_TYPE" in
+            apkm) BASE_FILE="base.apkm" ;;
+            apks) BASE_FILE="base.apks" ;;
+            xapk) BASE_FILE="base.xapk" ;;
+            *) BASE_FILE="base.apk" ;;
+          esac
+          if [ -n "$DIRECT_APK_URL" ]; then
+            echo "Using manual direct APK URL"
+            BASE_FILE="$BASE_FILE" python3 - <<'PY'
+          import os
+          from curl_cffi import requests
+          url = os.environ["DIRECT_APK_URL"]
+          output = os.environ["BASE_FILE"]
+          r = requests.get(url, impersonate="chrome131", stream=True, timeout=120)
+          r.raise_for_status()
+          total = 0
+          with open(output, "wb") as fh:
+              for ch in r.iter_content(8192):
+                  if ch:
+                      fh.write(ch)
+                      total += len(ch)
+          print(f"{total:,} bytes")
+          PY
+          elif [ "$TYPE" = "direct" ]; then
+            python3 tools/direct.py --config "$MATRIX_CONFIG" \
+              --arch "$MATRIX_ARCH" \
+              --exact-version "$RESOLVE_APK_VERSION" \
+              --output "$BASE_FILE"
+          elif [ "$TYPE" = "github" ]; then
+            python3 tools/github_source.py --config "$MATRIX_CONFIG" \
+              --arch "$MATRIX_ARCH" \
+              --apk-version "$RESOLVE_APK_VERSION" \
+              --output "$BASE_FILE"
+          elif [ "$TYPE" = "mirrors" ]; then
+            python3 tools/mirror_download.py --config "$MATRIX_CONFIG" \
+              --arch "$MATRIX_ARCH" \
+              --exact-version "$RESOLVE_APK_VERSION" \
+              --output "$BASE_FILE"
+          else
+            echo "Unknown source.type: $TYPE"; exit 1
+          fi
+          if [ "$TYPE" != "mirrors" ] || [ -n "$DIRECT_APK_URL" ]; then
+            echo "base_file=$BASE_FILE" >> "$GITHUB_OUTPUT"
+            echo "file_type=$FILE_TYPE" >> "$GITHUB_OUTPUT"
+          fi
+          ls -lh base.*
+          echo "::notice title=Base package ready::$BASE_FILE"
+          echo "::endgroup::"
+
+      - name: Validate base package
+        if: steps.check.outputs.skip != 'true'
+        env:
+          VALIDATE_BASE_FILE: ${{ steps.download.outputs.base_file }}
+          VALIDATE_FILE_TYPE: ${{ steps.download.outputs.file_type }}
+          VALIDATE_APK_VERSION: ${{ steps.resolve.outputs.apk_version }}
+          VALIDATE_ARCH: ${{ matrix.arch }}
+        run: |
+          echo "::group::Validate base package"
+          BASE_FILE="$VALIDATE_BASE_FILE" \
+          FILE_TYPE="$VALIDATE_FILE_TYPE" \
+          APK_VERSION="$VALIDATE_APK_VERSION" \
+          ARCH="$VALIDATE_ARCH" \
+          python3 - <<'PY'
+          import os
+          from tools.common import validate_package
+          entries = validate_package(
+              os.environ["BASE_FILE"],
+              os.environ["FILE_TYPE"],
+              expected_version=os.environ["APK_VERSION"],
+              expected_arch=os.environ["ARCH"],
+          )
+          print(f'Validated {os.environ["BASE_FILE"]}: {entries} ZIP entries')
+          PY
+
+      - name: Setup Morphe CLI
+        if: steps.check.outputs.skip != 'true'
+        env:
+          MORPHE_CLI_VERSION: ${{ env.MORPHE_CLI_VERSION }}
+        run: |
+          echo "::group::Setup Morphe CLI"
+          CLI_URL="https://github.com/MorpheApp/morphe-desktop/releases/download/v$MORPHE_CLI_VERSION/morphe-desktop-$MORPHE_CLI_VERSION-all.jar"
+          echo "CLI: $CLI_URL"
+          curl --fail --location --retry 3 --retry-all-errors -o morphe-cli.jar "$CLI_URL"
+          test -s morphe-cli.jar
+          echo "$MORPHE_CLI_SHA256  morphe-cli.jar" | sha256sum --check --status
+          echo "Morphe CLI checksum verified."
+          echo "::notice title=Morphe CLI ready::v$MORPHE_CLI_VERSION is ready."
+          echo "::endgroup::"
+
+      - name: Patch all flavors
+        if: steps.check.outputs.skip != 'true'
+        env:
+          PATCH_CONFIG: ${{ matrix.config }}
+          PATCH_ARCH: ${{ matrix.arch }}
+          PATCH_BASE_FILE: ${{ steps.download.outputs.base_file }}
+        run: |
+          echo "::group::Patch all flavors"
+          python3 tools/patch.py --config "$PATCH_CONFIG" \
+            --arch "$PATCH_ARCH" \
+            --cli morphe-cli.jar --mpp patches.mpp --base "$PATCH_BASE_FILE" \
+            --workdir . --manifest-out manifest.json
+
+      - name: Sign APKs
+        if: steps.check.outputs.skip != 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGN_APK_VERSION: ${{ steps.resolve.outputs.apk_version }}
+          SIGN_BASE_FILE: ${{ steps.download.outputs.base_file }}
+          SIGN_FILE_TYPE: ${{ steps.download.outputs.file_type }}
+          SIGN_MPP_VERSION: ${{ steps.resolve.outputs.mpp_version }}
+          SIGN_APP: ${{ matrix.app }}
+          SIGN_ARCH: ${{ matrix.arch }}
+          SIGN_CONFIG: ${{ matrix.config }}
+        run: |
+          echo "::group::Align, sign and verify APKs"
+          for secret_name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_PASSWORD KEY_ALIAS; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Required signing secret $secret_name is not set."
+              exit 1
+            fi
+          done
+          if ! printf "%s" "$KEYSTORE_BASE64" | base64 -d > release.keystore; then
+            echo "::error::KEYSTORE_BASE64 is not valid base64."
+            exit 1
+          fi
+          test -s release.keystore || {
+            echo "::error::Decoded keystore is empty."
+            exit 1
+          }
+          # The keystore is decoded material: guarantee removal even when a
+          # later command in this step fails.
+          trap 'rm -f release.keystore ks.pass key.pass' EXIT
+          printf "%s" "$KEYSTORE_PASSWORD" > ks.pass
+          printf "%s" "$KEY_PASSWORD" > key.pass
+          chmod 600 ks.pass key.pass
+          VER="$SIGN_APK_VERSION"
+          BASE_FILE="$SIGN_BASE_FILE"
+          BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          echo "Build-tools: $BUILD_TOOLS_DIR"
+          # The base was already exactly validated; this re-confirms the version
+          # instead of merely printing it next to the resolver's answer.
+          if [ "$SIGN_FILE_TYPE" = "apk" ]; then
+            AAPT=$("$BUILD_TOOLS_DIR"/aapt dump badging "$BASE_FILE" | grep -oP "versionName='\K[^']+" || true)
+            echo "aapt $BASE_FILE version: $AAPT (resolver: $VER)"
+            if [ -n "$AAPT" ] && [ "$AAPT" != "$VER" ]; then
+              echo "::error::aapt reports $AAPT but the resolver selected $VER."
+              exit 1
+            fi
+          fi
+          # Sign every file listed in the patch manifest (never reconstruct names).
+          FILES=""
+          while IFS= read -r ROW; do
+            UNSIGNED="${ROW%,*}"
+            SUFFIX="${ROW#*,}"
+            FINAL="$SIGN_APP-$SIGN_ARCH-v${VER}${SUFFIX}.apk"
+            ALIGNED="${UNSIGNED%.apk}-aligned.apk"
+            echo "== Sign $UNSIGNED -> $FINAL"
+            "$BUILD_TOOLS_DIR"/zipalign -v 4 "$UNSIGNED" "$ALIGNED"
+            "$BUILD_TOOLS_DIR"/apksigner sign --ks release.keystore --ks-pass file:ks.pass --key-pass file:key.pass ${KEY_ALIAS:+--ks-key-alias "$KEY_ALIAS"} --out "$FINAL" "$ALIGNED"
+            "$BUILD_TOOLS_DIR"/apksigner verify --verbose "$FINAL"
+            FILES="$FILES $FINAL"
+          done < <(python3 -c "import json; [print(f\"{e['file']},{e['suffix']}\") for e in json.load(open('manifest.json'))]")
+          # Fragment consumed by the publish job.
+          SIGN_APP="$SIGN_APP" SIGN_ARCH="$SIGN_ARCH" SIGN_VER="$VER" \
+          SIGN_MPP="$SIGN_MPP_VERSION" SIGN_CONFIG="$SIGN_CONFIG" SIGN_FILES="$FILES" \
+          python3 -c "
+          import json, os
+          cfg = json.load(open(os.environ['SIGN_CONFIG']))
+          files = os.environ['SIGN_FILES'].split()
+          frag = {'app': cfg['id'], 'display': cfg.get('display_name', cfg['id']),
+                  'arch': os.environ['SIGN_ARCH'],
+                  'apk_version': os.environ['SIGN_VER'],
+                  'mpp_version': os.environ['SIGN_MPP'],
+                  'build_date': '$(date -u +%Y-%m-%d)',
+                  'files': files}
+          open(f'fragment-{os.environ[\"SIGN_APP\"]}-{os.environ[\"SIGN_ARCH\"]}.json', 'w').write(json.dumps(frag, indent=2))
+          print(json.dumps(frag, indent=2))
+          "
+          rm -f release.keystore ks.pass key.pass
+          trap - EXIT
+          echo "::notice title=Signing complete::All manifest outputs were aligned, signed, and verified."
+          echo "::endgroup::"
+
+      - name: Upload build artifacts
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ready-${{ matrix.app }}-${{ matrix.arch }}
+          path: |
+            ${{ matrix.app }}-${{ matrix.arch }}-v*.apk
+            fragment-${{ matrix.app }}-${{ matrix.arch }}.json
+
+  publish:
+    name: Publish monthly release
+    needs: build
+    # One failing app must not block the others: with no fragments this job
+    # exits cleanly without touching the release.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          pattern: ready-*
+          merge-multiple: true
+          path: dist
+      - name: Update monthly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          TAG=$(date -u +%Y-%m)
+          ls -la dist || true
+          python3 -c "
+          import glob, json
+          frags = [json.load(open(p)) for p in sorted(glob.glob('dist/fragment-*.json'))]
+          open('builds.json', 'w').write(json.dumps({'builds': frags}, indent=2))
+          print(f'{len(frags)} bundle(s) to publish')
+          "
+          if [ "$(python3 -c "import json; print(len(json.load(open('builds.json'))['builds']))")" = "0" ]; then
+            echo "Nothing new, monthly release untouched."
+            exit 0
+          fi
+          cp dist/*.apk . 2>/dev/null || true
+          python3 tools/monthly_release.py --tag "$TAG" --builds builds.json

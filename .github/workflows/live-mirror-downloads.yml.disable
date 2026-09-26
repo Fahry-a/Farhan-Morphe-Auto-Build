@@ -1,0 +1,128 @@
+name: Live Mirror Downloads
+
+on:
+  push:
+    paths:
+      - 'apps/**'
+      - 'tools/**'
+      - 'tests/**'
+      - '.github/workflows/live-mirror-downloads.yml'
+      - 'requirements.txt'
+  schedule:
+    # Weekly provider/source audit (Monday 02:30 UTC).
+    - cron: '30 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'App id, comma-separated ids, or all'
+        required: false
+        default: 'all'
+        type: string
+      mirror:
+        description: 'Provider name, comma-separated names, or all'
+        required: false
+        default: 'all'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-mirror-downloads
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover mirror matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - id: matrix
+        env:
+          APP: ${{ inputs.app || 'all' }}
+          MIRROR: ${{ inputs.mirror || 'all' }}
+        run: |
+          set -euo pipefail
+          matrix="$(python3 tools/mirror_probe.py --matrix --app "$APP" --mirror "$MIRROR")"
+          echo "Discovered mirror targets: $matrix"
+          if [ "$matrix" = "[]" ]; then
+            echo "::error::No enabled mirror target matched the requested filters."
+            exit 1
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: ${{ matrix.app }} / ${{ matrix.arch }} / ${{ matrix.mirror }}
+    needs: discover
+    if: needs.discover.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJson(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+      - name: Install dependencies
+        env:
+          APKD_ACCESS_TOKEN: ${{ secrets.APKD_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$APKD_ACCESS_TOKEN"
+          git config --global "url.https://x-access-token:${APKD_ACCESS_TOKEN}@github.com/.insteadOf" "https://github.com/"
+          uv pip install --system -r requirements.txt
+      - name: Locate Android aapt
+        id: aapt
+        run: |
+          set -euo pipefail
+          AAPT="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name aapt -perm -111 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$AAPT" ]; then
+            sudo apt-get update
+            sudo apt-get install -y aapt
+            AAPT="$(command -v aapt)"
+          fi
+          test -x "$AAPT"
+          echo "path=$AAPT" >> "$GITHUB_OUTPUT"
+      - name: Download and validate exact mirror package
+        env:
+          AAPT: ${{ steps.aapt.outputs.path }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP: ${{ matrix.app }}
+          ARCH: ${{ matrix.arch }}
+          MIRROR: ${{ matrix.mirror }}
+          CONFIG: ${{ matrix.config }}
+        run: |
+          set -o pipefail
+          set +e
+          python3 tools/mirror_probe.py \
+            --config "$CONFIG" \
+            --app "$APP" \
+            --arch "$ARCH" \
+            --mirror "$MIRROR" \
+            --report "mirror-report-$APP-$ARCH-$MIRROR.json" \
+            2>&1 | tee "mirror-output-$APP-$ARCH-$MIRROR.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+      - name: Upload mirror audit report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mirror-report-${{ matrix.app }}-${{ matrix.arch }}-${{ matrix.mirror }}
+          path: |
+            mirror-report-${{ matrix.app }}-${{ matrix.arch }}-${{ matrix.mirror }}.json
+            mirror-output-${{ matrix.app }}-${{ matrix.arch }}-${{ matrix.mirror }}.log
+          if-no-files-found: warn

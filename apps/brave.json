@@ -1,0 +1,31 @@
+{
+  "id": "brave",
+  "display_name": "Brave Browser",
+  "package": "com.brave.browser",
+  "patch_repo": "kveld9/kveld-morphe-patches",
+  "allow_experimental": false,
+  "source": {
+    "type": "github",
+    "repo": "brave/brave-browser",
+    "tag_prefix": "v",
+    "file_type": "apk",
+    "archs": [
+      {
+        "name": "arm64",
+        "asset": "BraveMonoarm64.apk"
+      },
+      {
+        "name": "arm32",
+        "asset": "BraveMonoarm.apk"
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Single flavor, all default Brave patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}
