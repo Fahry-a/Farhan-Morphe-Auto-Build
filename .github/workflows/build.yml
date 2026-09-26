@@ -258,6 +258,7 @@ jobs:
           DIRECT_APK_URL: ${{ inputs.direct_apk_url }}
           APKMIRROR_BROWSER_ALLOW_CI: '1'
           APKMIRROR_BROWSER_HEADLESS: '1'
+          APKD_UPTODOWN_BROWSER: '1'
           APKD_UPTODOWN_INVISIBLE: '1'
           APKD_UPTODOWN_HEADLESS: '1'
           MATRIX_APP: ${{ matrix.app }}
