@@ -53,6 +53,36 @@ def render_section(build, repo, tag):
     )
 
 
+_SECTION_BUILD_ROW = re.compile(
+    r"^\|\s*<code>([^<]+)</code>\s*\|\s*<code>([^<]+)</code>\s*\|",
+    re.MULTILINE,
+)
+
+
+def normalize_mpp_version(version):
+    """Compare Morphe versions the same way whether or not a 'v' is stored."""
+    return str(version or "").strip().lstrip("vV").strip()
+
+
+def stored_mpp_for_section(body, app, arch):
+    """Morphe version recorded in the release-note section for app+arch.
+
+    Returns None when the section or its build table is missing, so callers
+    can treat an unparsable section as stale instead of skipping the build.
+    """
+    key = section_key(app, arch)
+    start = f"<!-- app:{key} -->"
+    end = f"<!-- /app:{key} -->"
+    if start not in body or end not in body:
+        return None
+    section = body.split(start, 1)[1].split(end, 1)[0]
+    match = _SECTION_BUILD_ROW.search(section)
+    if not match:
+        return None
+    # Row columns: | <code>apk_version</code> | <code>mpp_version</code> | date |
+    return match.group(2).strip()
+
+
 def upsert_section(body, key, section):
     """Replace the marked section for key, or append it when missing."""
     start = f"<!-- app:{key} -->"

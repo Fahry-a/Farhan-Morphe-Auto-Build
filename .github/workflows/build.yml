@@ -204,6 +204,7 @@ jobs:
           MATRIX_CONFIG: ${{ matrix.config }}
           INPUT_REBUILD: ${{ inputs.rebuild }}
           RESOLVE_APK_VERSION: ${{ steps.resolve.outputs.apk_version }}
+          RESOLVE_MPP_VERSION: ${{ steps.resolve.outputs.mpp_version }}
         run: |
           TAG=$(date -u +%Y-%m)
           echo "tag=$TAG" >> $GITHUB_OUTPUT
@@ -211,11 +212,16 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          # RESOLVE_APK_VERSION originates in a third-party patch repo's
-          # patches-list.json. It is only ever passed through the environment
-          # and read back inside Python -- never interpolated into shell or
-          # into a Python string literal -- so a hostile version cannot break
-          # out into code execution.
+          # RESOLVE_APK_VERSION and RESOLVE_MPP_VERSION originate in a
+          # third-party patch repo's metadata. They are only ever passed
+          # through the environment and read back inside Python -- never
+          # interpolated into shell or into a Python string literal -- so a
+          # hostile version cannot break out into code execution.
+          if ! gh release view "$TAG" --json assets,body > release.json 2>/dev/null; then
+            echo "Release $TAG does not exist yet; building."
+            echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           EXPECTED=$(MATRIX_APP="$MATRIX_APP" MATRIX_ARCH="$MATRIX_ARCH" \
             RESOLVE_APK_VERSION="$RESOLVE_APK_VERSION" MATRIX_CONFIG="$MATRIX_CONFIG" \
             python3 -c "
@@ -226,17 +232,33 @@ jobs:
           print(' '.join(f'{app}-{arch}-v{ver}' + f.get('output_suffix', '') + '.apk' for f in cfg['flavors']))
           ")
           echo "Expected: $EXPECTED"
-          HAVE=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+          HAVE=$(python3 -c "import json; print('\n'.join(a['name'] for a in json.load(open('release.json'))['assets']))")
           MISSING=0
           for f in $EXPECTED; do
             echo "$HAVE" | grep -qx "$f" || MISSING=1
           done
-          if [ "$MISSING" = "0" ]; then
-            echo "All assets already in $TAG, skipping."
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
+          if [ "$MISSING" != "0" ]; then
+            echo "Missing assets in $TAG; building."
             echo "skip=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+          # All expected assets exist. Skip only when the published build was
+          # patched with the Morphe version resolved for this run; an updated
+          # .mpp must rebuild the same APK version with the new patch. A
+          # section without a parsable Morphe version is treated as stale.
+          MATRIX_APP="$MATRIX_APP" MATRIX_ARCH="$MATRIX_ARCH" \
+          RESOLVE_MPP_VERSION="$RESOLVE_MPP_VERSION" python3 -c "
+          import json, os
+          from tools.monthly_release import normalize_mpp_version, stored_mpp_for_section
+          body = json.load(open('release.json')).get('body') or ''
+          app = os.environ['MATRIX_APP']; arch = os.environ['MATRIX_ARCH']
+          stored = stored_mpp_for_section(body, app, arch)
+          resolved = os.environ['RESOLVE_MPP_VERSION']
+          current = stored is not None and normalize_mpp_version(stored) == normalize_mpp_version(resolved)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write(f'skip={\"true\" if current else \"false\"}\n')
+          print(f'Release Morphe: {stored} | resolved Morphe: {resolved} | skip={str(current).lower()}')
+          "
 
       - name: Download prebuilt .mpp
         if: steps.check.outputs.skip != 'true'

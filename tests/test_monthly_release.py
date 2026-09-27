@@ -1,6 +1,13 @@
 import unittest
 
-from tools.monthly_release import rebuild_release_body, render_section, stale_assets, upsert_section
+from tools.monthly_release import (
+    normalize_mpp_version,
+    rebuild_release_body,
+    render_section,
+    stale_assets,
+    stored_mpp_for_section,
+    upsert_section,
+)
 
 
 class MonthlyReleaseTests(unittest.TestCase):
@@ -61,6 +68,39 @@ class MonthlyReleaseTests(unittest.TestCase):
         self.assertEqual(
             stale_assets(existing, "brave", "arm64", ["brave-arm64-v1.1.0.apk"]),
             ["brave-arm64-v1.0.0.apk"],
+        )
+
+    def test_stored_mpp_for_section(self):
+        build = {
+            "app": "adm",
+            "display": "Advanced Download Manager",
+            "arch": "universal",
+            "apk_version": "14.0.39",
+            "mpp_version": "1.53.0",
+            "build_date": "2026-09-24",
+            "files": ["adm-universal-v14.0.39.apk"],
+        }
+        body = rebuild_release_body(
+            "", [build], "Fahry-a/Farhan-Morphe-Auto-Build", "2026-09"
+        )
+        self.assertEqual(stored_mpp_for_section(body, "adm", "universal"), "1.53.0")
+        # Other sections must not leak into this app/arch lookup.
+        self.assertIsNone(stored_mpp_for_section(body, "brave", "arm64"))
+
+    def test_stored_mpp_missing_section(self):
+        self.assertIsNone(stored_mpp_for_section("intro\n", "brave", "arm64"))
+
+    def test_stored_mpp_section_without_build_table(self):
+        body = "<!-- app:brave:arm64 -->\nno table here\n<!-- /app:brave:arm64 -->"
+        self.assertIsNone(stored_mpp_for_section(body, "brave", "arm64"))
+
+    def test_normalize_mpp_version(self):
+        self.assertEqual(normalize_mpp_version("v1.53.0"), "1.53.0")
+        self.assertEqual(normalize_mpp_version("V1.53.0"), "1.53.0")
+        self.assertEqual(normalize_mpp_version(" 1.53.0 "), "1.53.0")
+        self.assertEqual(normalize_mpp_version(None), "")
+        self.assertNotEqual(
+            normalize_mpp_version("v1.45.0"), normalize_mpp_version("2.0.0")
         )
 
 

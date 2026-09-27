@@ -641,7 +641,16 @@ must remain
 
 Before downloading or patching, the workflow calculates the expected output names from the application configuration and resolved version.
 
-If every expected asset already exists in the current monthly release, that matrix job is skipped.
+If every expected asset already exists in the current monthly release **and** the release-note section for that app/architecture records the same Morphe version that was just resolved, that matrix job is skipped.
+
+The recorded Morphe version is read from the section's build table:
+
+~~~text
+| v14.0.39 | 1.53.0 | 2026-09-24 |
+            ↑ compared with the resolved mpp_version
+~~~
+
+A leading `v` is normalized before comparing. When the patch repository publishes a new `.mpp` while the supported APK version stays the same, the comparison fails and the job rebuilds, so the published APK always carries the currently resolved patch. A section that is missing or has no parsable build table counts as stale and is rebuilt.
 
 Use:
 
