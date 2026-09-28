@@ -968,7 +968,7 @@ use the same mirror dispatcher:
 | Pinterest | `com.pinterest` | `browzomje/browzomje-patches` | APKMirror → APKCombo → APKPure → Aptoide | APK |
 | Advanced Download Manager | `com.dv.adm` | `arandomhooman/hoomans-morphe-patches` | APKMirror → APKPure → APKCombo → Aptoide | APKM |
 | X / Twitter | `com.twitter.android` | `crimera/piko` | APKMirror → APKPure → APKCombo → Aptoide | APKM |
-| Instagram | `com.instagram.android` | `Fahry-a/piko` | APKMirror → APKPure → APKCombo → Aptoide | APKM (arm64 + arm32 jobs; no universal package published) |
+| Instagram | `com.instagram.android` | `Fahry-a/piko` | APKPure → APKMirror → APKCombo → Aptoide | APKM (arm64 + arm32 jobs; no universal package published) |
 
 All of these use `source.type: mirrors` and the implicit universal contract,
 except Native Camera and Instagram, which declare explicit per-ABI `source.archs` because

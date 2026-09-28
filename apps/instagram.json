@@ -17,13 +17,13 @@
     ],
     "mirrors": [
       {
+        "type": "apkpure",
+        "name": "instagram-app"
+      },
+      {
         "type": "apkmirror",
         "org": "instagram",
         "repo": "instagram-instagram"
-      },
-      {
-        "type": "apkpure",
-        "name": "instagram"
       },
       {
         "type": "apkcombo",
