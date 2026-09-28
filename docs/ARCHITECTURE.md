@@ -172,7 +172,9 @@ let another exact-version universal mirror handle the build; never relabel an
 arm64-only file as universal.
 
 When *no* mirror publishes a universal package for an app at all (Native
-Camera: only APKPure carries it, as separate arm64/arm32 XAPKs), the config
+Camera: only APKPure carries it, as separate arm64/arm32 XAPKs; Instagram
+439.0.0.37.89: separate ARM64_V8A 384510827 / ARMEABI_V7A 384510826 APKM
+bundles), the config
 declares explicit per-ABI entries instead of taking the implicit contract:
 
 ~~~json
@@ -966,10 +968,11 @@ use the same mirror dispatcher:
 | Pinterest | `com.pinterest` | `browzomje/browzomje-patches` | APKMirror → APKCombo → APKPure → Aptoide | APK |
 | Advanced Download Manager | `com.dv.adm` | `arandomhooman/hoomans-morphe-patches` | APKMirror → APKPure → APKCombo → Aptoide | APKM |
 | X / Twitter | `com.twitter.android` | `crimera/piko` | APKMirror → APKPure → APKCombo → Aptoide | APKM |
+| Instagram | `com.instagram.android` | `Fahry-a/piko` | APKMirror → APKPure → APKCombo → Aptoide | APKM (arm64 + arm32 jobs; no universal package published) |
 
 All of these use `source.type: mirrors` and the implicit universal contract,
-except Native Camera, which declares explicit per-ABI `source.archs` because
-no mirror publishes a universal package for it. The live audit
+except Native Camera and Instagram, which declare explicit per-ABI `source.archs` because
+no mirror publishes a universal package for them. The live audit
 discovers them from the same files rather than maintaining a second hardcoded
 list.
 

@@ -1,0 +1,45 @@
+{
+  "id": "instagram",
+  "display_name": "Instagram",
+  "package": "com.instagram.android",
+  "patch_repo": "Fahry-a/piko",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "apkm",
+    "archs": [
+      {
+        "name": "arm64"
+      },
+      {
+        "name": "arm32"
+      }
+    ],
+    "mirrors": [
+      {
+        "type": "apkmirror",
+        "org": "instagram",
+        "repo": "instagram-instagram"
+      },
+      {
+        "type": "apkpure",
+        "name": "instagram"
+      },
+      {
+        "type": "apkcombo",
+        "name": "instagram"
+      },
+      {
+        "type": "aptoide"
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "default",
+      "description": "Default flavor with all default Instagram patches",
+      "patch_include": [],
+      "output_suffix": ""
+    }
+  ]
+}
