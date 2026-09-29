@@ -2,7 +2,7 @@
   "id": "instagram",
   "display_name": "Instagram",
   "package": "com.instagram.android",
-  "patch_repo": "Fahry-a/piko",
+  "patch_repo": "zalfafa/piko",
   "allow_experimental": false,
   "source": {
     "type": "mirrors",
