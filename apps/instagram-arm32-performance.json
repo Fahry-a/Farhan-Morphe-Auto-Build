@@ -2,7 +2,7 @@
   "id": "instagram-arm32-performance",
   "display_name": "Instagram ARM32 Performance",
   "package": "com.instagram.android",
-  "patch_repo": "Fahry-a/piko",
+  "patch_repo": "zalfafa/piko",
   "allow_experimental": false,
   "source": {
     "type": "mirrors",
