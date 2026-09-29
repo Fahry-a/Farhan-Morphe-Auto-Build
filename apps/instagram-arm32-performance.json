@@ -1,0 +1,51 @@
+{
+  "id": "instagram-arm32-performance",
+  "display_name": "Instagram ARM32 Performance",
+  "package": "com.instagram.android",
+  "patch_repo": "Fahry-a/piko",
+  "allow_experimental": false,
+  "source": {
+    "type": "mirrors",
+    "file_type": "apkm",
+    "archs": [
+      {
+        "name": "arm32"
+      }
+    ],
+    "mirrors": [
+      {
+        "type": "apkpure",
+        "name": "instagram-app"
+      },
+      {
+        "type": "apkmirror",
+        "org": "instagram",
+        "repo": "instagram-instagram"
+      },
+      {
+        "type": "apkcombo",
+        "name": "instagram"
+      },
+      {
+        "type": "aptoide"
+      }
+    ]
+  },
+  "flavors": [
+    {
+      "name": "performance",
+      "description": "ARM32 Instagram build with useful low-impact patches while avoiding Feed, Reels, scrolling, media, and content-processing hooks",
+      "patch_include": [
+        "Change version code",
+        "Remove build expired popup",
+        "Disable onboarding permission prompts",
+        "Disable discover people",
+        "Disable screenshot detection",
+        "Disable typing status",
+        "Open links externally",
+        "Validate links"
+      ],
+      "output_suffix": "-arm32-performance"
+    }
+  ]
+}
